@@ -27,6 +27,8 @@ jobs:
         run: node --test test/accounts.test.js
       - name: restart
         run: node --test test/restart.test.js
+      - name: send-script
+        run: node --test test/send-script.test.js
       - name: integration
         run: node --test test/integration.test.js
         timeout-minutes: 5

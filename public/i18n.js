@@ -168,7 +168,7 @@ Your duty: <describe what {role} is responsible for>.
 Other roles: {peers}.
 How it works:
 - Messages from other roles arrive in this terminal as a block starting with [CLIConductor <id> FROM->TO]. Each one tells you whether a reply is required and the exact command to reply with.
-- To send a message or reply, run: {send} -From {role} -To <ROLE> -Message "<text>". The bridge delivers it to that role automatically; do not edit outbox files by hand.
+- To send a message or reply, run: {send} -From {role} -To <ROLE> -Message "<text>" (for long or multi-line text write it to a UTF-8 file and use -MessagePath <file>; add -NoReply when no answer is needed). It prints QUEUED <id> or ERROR. The bridge delivers it to that role automatically; do not edit outbox files by hand.
 - The other role cannot see your terminal. Keep every message self-contained: state the goal, what you did, results, and file paths (inside the workspace) they need.
 - Only message a role when you need something from it or are reporting a result. Stay within your duty.
 Reply "ready" in this terminal (no bridge message needed) and wait for the first task.`,
@@ -177,7 +177,7 @@ Reply "ready" in this terminal (no bridge message needed) and wait for the first
 其他角色：{peers}。
 协作方式：
 - 其他角色发来的消息会以 [CLIConductor <id> 发送方->接收方] 开头的文本块出现在本终端中，并注明是否需要回复以及回复所用的确切命令。
-- 发送消息或回复时运行：{send} -From {role} -To <角色名> -Message "<内容>"。桥接会自动把它投递给对方；不要手动编辑 outbox 文件。
+- 发送消息或回复时运行：{send} -From {role} -To <角色名> -Message "<内容>"（长文本或多行内容请写入 UTF-8 文件并用 -MessagePath <文件>；不需要回复时加 -NoReply）。命令会输出 QUEUED <id> 或 ERROR。桥接会自动把它投递给对方；不要手动编辑 outbox 文件。
 - 对方看不到你的终端。每条消息都要完整自足：写清目标、你做了什么、结果，以及对方需要的文件路径（必须在工作区内）。
 - 只在需要对方协助或汇报结果时才发消息，专注于你的职责。
 请在本终端回复“就绪”（无需通过桥接发消息），然后等待第一个任务。`,

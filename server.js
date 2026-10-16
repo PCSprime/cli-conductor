@@ -35,6 +35,7 @@ function defaultOpenFolder(dir) {
 function defaultDataDir() { return process.env.CC_DATA_DIR || path.join(require('os').homedir(), '.cli-conductor'); }
 function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir(), log = console.log, pickFolder = folderpicker.pickFolder, accountsDir = accounts.defaultRoot(), openFolder = defaultOpenFolder } = {}) {
   fs.mkdirSync(dataDir, { recursive: true });
+  let listenPort = port;
   const files = { adapters: path.join(dataDir, 'adapters.json'), presets: path.join(dataDir, 'presets.json'), ui: path.join(dataDir, 'ui.json') };
   const readJson = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
   const writeJson = (f, v) => fs.writeFileSync(f, JSON.stringify(v, null, 2));
@@ -89,7 +90,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
       const peers = roles.filter(o => o.name !== r.name).map(o => o.type === 'observer' ? `${o.name} (archive only)` : o.name).join(', ');
       bridgeRoles[r.name].briefing = fillBriefing(r.briefing, { role: r.name, peers, workspace, send: `pwsh -File "${sendScript}" -ConfigPath "${configPath}"` });
     }
-    const bridge = new Bridge({ workspace, stateDir, roles: bridgeRoles, sendScript, configPath, waitTurnEnd: !!body.waitTurnEnd, pollMs: body.pollMs || 1000 });
+    const bridge = new Bridge({ workspace, stateDir, roles: bridgeRoles, sendScript, configPath, serverUrl: `http://127.0.0.1:${listenPort}`, waitTurnEnd: !!body.waitTurnEnd, pollMs: body.pollMs || 1000 });
     bridge.on('event', e => broadcast({ type: 'event', event: e }));
     bridge.on('error', e => log('bridge error', e.message));
     bridge.start();
@@ -250,7 +251,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
 
   return {
     server, start, stop, restartRole, stopRole, status: statusPayload, get run() { return run; },
-    listen: () => new Promise(r => server.listen(port, host, () => { const a = server.address(); log(`cli-conductor on http://${host}:${a.port}`); r(a.port); })),
+    listen: () => new Promise(r => server.listen(port, host, () => { const a = server.address(); listenPort = a.port; log(`cli-conductor on http://${host}:${a.port}`); r(a.port); })),
     close: async () => { await stop(); await Promise.all(Object.values(logins).map(s => s.stop(1000))); for (const ws of sockets) ws.terminate(); await new Promise(r => server.close(r)); },
   };
 }

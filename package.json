@@ -13,7 +13,7 @@
   "files": ["server.js", "lib/", "public/", "tools/", "README.md", "README.zh-CN.md", "LICENSE", "CHANGELOG.md"],
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/unit.test.js test/ui.test.js test/accounts.test.js test/restart.test.js test/integration.test.js"
+    "test": "node --test test/unit.test.js test/ui.test.js test/accounts.test.js test/restart.test.js test/send-script.test.js test/integration.test.js"
   },
   "engines": { "node": ">=20" },
   "os": ["win32"],

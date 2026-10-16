@@ -1,0 +1,32 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - name: unit
+        run: node --test test/unit.test.js
+      - name: ui
+        run: node --test test/ui.test.js
+      - name: accounts
+        run: node --test test/accounts.test.js
+      - name: restart
+        run: node --test test/restart.test.js
+      - name: integration
+        run: node --test test/integration.test.js
+        timeout-minutes: 5

@@ -1,0 +1,27 @@
+{
+  "name": "cli-conductor",
+  "version": "0.1.0",
+  "description": "Run several AI coding CLIs (Codex, Claude Code, Gemini, Qoder, ...) side by side in real Windows terminals and let them message each other.",
+  "keywords": ["ai", "agents", "multi-agent", "cli", "codex", "claude-code", "gemini-cli", "conpty", "node-pty", "xterm", "terminal", "windows", "orchestration"],
+  "license": "MIT",
+  "author": "PCSprime",
+  "homepage": "https://github.com/PCSprime/cli-conductor#readme",
+  "repository": { "type": "git", "url": "git+https://github.com/PCSprime/cli-conductor.git" },
+  "bugs": { "url": "https://github.com/PCSprime/cli-conductor/issues" },
+  "main": "server.js",
+  "bin": { "cli-conductor": "server.js" },
+  "files": ["server.js", "lib/", "public/", "tools/", "README.md", "README.zh-CN.md", "LICENSE", "CHANGELOG.md"],
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/unit.test.js test/ui.test.js test/accounts.test.js test/restart.test.js test/integration.test.js"
+  },
+  "engines": { "node": ">=20" },
+  "os": ["win32"],
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/headless": "^6.0.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.1.0",
+    "ws": "^8.22.0"
+  }
+}

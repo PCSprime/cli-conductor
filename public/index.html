@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CLI Conductor</title>
+<link rel="stylesheet" href="/vendor/xterm.css"><link rel="stylesheet" href="/app.css">
+</head><body>
+<header>
+  <div class="brand"><div class="logo">CC</div><h1>CLI Conductor</h1></div>
+  <div class="pill" id="pill"><span class="dot offline"></span>Not running</div>
+  <div class="actions">
+    <label class="mini hidden" id="pauseWrap"><span>Pause delivery</span><button class="switch sm" id="swPause"></button></label>
+    <button class="btn plain hidden" id="btnNew">New Message</button>
+    <div class="lang" id="btnLang"><span data-l="zh">中文</span><span data-l="en">EN</span></div>
+  </div>
+</header>
+<div class="layout" id="layout">
+  <aside class="side glass">
+    <div class="srail" id="srail"></div>
+    <div class="label">Workspace</div>
+    <div class="group"><div class="row" id="wsRow"></div></div>
+    <div class="foot">Message refs must be inside this folder. State is kept in .tmp/cli_conductor.</div>
+
+    <div class="label">Roles <button class="link" id="btnAddRole">＋ Add Role</button></div>
+    <div class="group" id="roles"></div>
+
+    <div class="label">Detected CLIs <button class="link" id="btnRescan">Rescan</button></div>
+    <div class="group" id="adapters"></div>
+    <details class="group more" id="otherClis"><summary class="row"><span id="otherTitle"></span><span class="chev">›</span></summary><div id="otherList"></div></details>
+    <details class="group more" id="hiddenClis"><summary class="row"><span id="hiddenTitle"></span><span class="chev">›</span></summary><div id="hiddenList"></div></details>
+    <details class="group more" id="manualCli"><summary class="row"><span class="link">＋ Add CLI Manually</span><span class="chev">›</span></summary>
+      <div class="row"><span>Name</span><input type="text" id="mLabel" placeholder="My CLI"></div>
+      <div class="row"><span>Command or full path</span><input type="text" id="mCmd" placeholder="C:\tools\mycli.exe"></div>
+      <div class="row"><span>Default arguments</span><input type="text" id="mArgs" placeholder="optional"></div>
+      <div class="row"><span>Busy pattern (regex)</span><input type="text" id="mBusy" placeholder="esc to interrupt"></div>
+      <div class="row"><span>Exit command</span><input type="text" id="mExit" placeholder="/exit"></div>
+      <div class="row end"><button class="btn plain sm" id="btnAddCli">Add CLI</button></div>
+    </details>
+
+    <div id="acctSec"><div class="label">Accounts</div>
+    <div class="group" id="accounts"></div>
+    <div class="foot" id="acctFoot"></div></div>
+
+    <div class="label">Options</div>
+    <div class="group">
+      <div class="row opt"><div class="opttext"><div>Wait for the CLI to finish before delivering</div><div class="hint">The bridge waits until the target CLI finishes its current turn, instead of interrupting it right away.</div></div><button class="switch sm" id="optWait"></button></div>
+      <div class="row opt"><div class="opttext"><div>Quiet time that counts as finished</div><div class="hint">How long the screen must stay unchanged before a turn counts as finished. Shorter is faster, longer is safer.</div></div><div class="seg" id="optIdle"></div></div>
+    </div>
+
+    <div class="label">Presets</div>
+    <div class="group">
+      <div class="row"><select id="presetSel" class="field-sel"><option value="">Choose a preset...</option></select><button class="link" id="btnLoadPreset">Load</button><button class="link red" id="btnDelPreset">Delete</button></div>
+      <div class="row"><input type="text" id="presetName" class="field" placeholder="Preset name"><button class="link" id="btnSavePreset">Save Current</button></div>
+    </div>
+    <div class="sidefoot">
+      <div class="sum" id="runSum"></div>
+      <button class="btn big gbtn" id="btnStart">Start Conductor</button>
+      <button class="btn big gbtn stop hidden" id="btnStop">Stop Conductor</button>
+      <div class="hint why" id="startWhy"></div>
+    </div>
+  </aside>
+
+  <div class="shandle" id="shandle"><span></span></div>
+  <main class="center"><div class="terms" id="terms"></div><div class="stage hidden" id="stage"></div><div class="dock hidden" id="dock"></div><div class="hidden" id="parking"></div></main>
+
+  <aside class="panel glass" id="panel">
+    <div class="phandle" id="phandle"><span></span></div>
+    <div class="prail" id="prail"></div>
+    <div class="pbody">
+    <div id="runInfo" class="hidden">
+      <div class="label">Status</div><div class="group stats" id="statusList"></div>
+      <div class="label">Role status</div><div class="group" id="roleRun"></div>
+      <div class="foot mono" id="cfgInfo"></div>
+    </div>
+    <div class="label">Activity</div><div class="group feed" id="feed"></div>
+    </div>
+  </aside>
+</div>
+<div class="pop" id="pop" role="dialog" aria-modal="false"><div class="popin" id="popIn"></div></div>
+<div class="sheet-bg" id="sheet"><div class="sheet">
+  <h2>New Message <button class="link" id="btnCancel">Cancel</button></h2>
+  <div class="group">
+    <div class="row"><span>From</span><select id="sFrom"></select></div>
+    <div class="row"><span>To</span><select id="sTo"></select></div>
+    <div class="row"><span>Reply required</span><button class="switch sm on" id="sReply"></button></div>
+  </div>
+  <div class="group" style="margin-top:12px"><div class="row stack"><textarea id="sMsg" placeholder="Message"></textarea></div>
+  <div class="row"><span>Refs</span><input type="text" id="sRefs" placeholder="paths inside workspace, comma separated"></div></div>
+  <div style="margin-top:14px"><button class="btn big" id="btnSend">Send</button></div>
+</div></div>
+<div class="sheet-bg" id="loginSheet"><div class="sheet login">
+  <h2><span id="loginTitle">Log in</span> <button class="link" id="loginClose">Close</button></h2>
+  <div class="foot mono" id="loginCmd"></div>
+  <div class="loginterm" id="loginTermBox"></div>
+  <div class="lstate" id="loginState"></div>
+  <div class="foot">Finish the login in the terminal above (a browser window may open). Close this when the status shows logged in.</div>
+</div></div>
+<div class="ctx" id="ctx" role="menu"></div>
+<div class="toast" id="toast"></div>
+<script src="/vendor/xterm.js"></script><script src="/vendor/addon-fit.js"></script><script src="/i18n.js"></script><script src="/stage.js"></script><script src="/app.js"></script>
+</body></html>

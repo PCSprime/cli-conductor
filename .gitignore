@@ -1,0 +1,14 @@
+node_modules/
+# run state written into workspaces (and if you use this repo as a workspace)
+.tmp/
+# local data if CC_DATA_DIR points here
+.cli-conductor/
+data/
+*.log
+npm-debug.log*
+.env
+.env.*
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -3,8 +3,8 @@
 const ZH = {
   'CLI Conductor': 'CLI 调度台', 'Not running': '未运行', 'Stop': '停止', 'New Message': '新消息',
   'Workspace': '工作区', 'Folder': '文件夹',
-  'Message refs must be inside this folder. State is kept in .tmp/cli_conductor.': '消息引用的文件必须位于此文件夹内。状态保存在 .tmp/cli_conductor。',
-  'Roles': '角色', 'Add Role': '添加角色', 'Options': '选项',
+  'Message refs must be inside this folder. State is kept in .tmp/terminal_bridge.': '消息引用的文件必须位于此文件夹内。状态保存在 .tmp/terminal_bridge。',
+  'Roles': '角色', 'Add Role': '新建角色', 'Options': '选项',
   'Wait for turn end before delivering': '投递前等待回合结束', 'Idle time for turn end': '回合结束空闲时间',
   'The strict first-run prompt check is always on. A role showing a trust or login prompt is held until you answer it in its card.': '严格的首次运行提示检测始终开启。出现信任或登录提示的角色会被暂停投递，直到你在其终端卡片中作答。',
   'Detected CLIs': '已检测到的 CLI', 'Rescan': '重新扫描', 'Add CLI Manually': '手动添加 CLI', 'Name': '名称',
@@ -18,7 +18,7 @@ const ZH = {
   'Archived to inbox; its messages wait for the target turn end': '归档到收件箱；其消息会等待目标回合结束',
   '(not found)': '（未找到）', 'Immediate': '立即', 'After turn': '回合后', 'Working folder': '工作文件夹', 'workspace': '工作区',
   'Raw arguments': '原始参数', 'none': '无', 'Remove Role': '移除角色', 'Remove': '移除', 'not found': '未找到',
-  'No activity yet': '暂无活动', 'Paused': '已暂停', 'Bridge running': '桥接运行中', 'roles': '个角色', 'held': '条暂缓',
+  'No activity yet': '暂无活动', 'Paused': '已暂停', 'Bridge running': '桥接运行中', 'roles running': '个运行', 'roles': '个角色', 'held': '条暂缓',
   'working': '工作中', 'observer · inbox only': '观察者 · 仅收件箱', 'after turn': '回合后', 'immediate': '立即',
   'all roles': '所有角色', 'per role': '按角色',
   'idle': '空闲', 'starting': '启动中', 'offline': '离线', 'needs attention': '需要处理', 'inbox only': '仅收件箱',
@@ -44,7 +44,7 @@ const ZH = {
   'The bridge waits until the target CLI finishes its current turn, instead of interrupting it right away.': '桥接会等目标 CLI 完成当前这一轮回复后再投递，而不是立刻打断它。',
   'How long the screen must stay unchanged before a turn counts as finished. Shorter is faster, longer is safer.': '屏幕保持不变多少秒才算这一轮结束。越短越快，越长越稳妥。', 'Browse…': '浏览…', 'Recent:': '最近：', 'Role settings': '角色设置', 'Done': '完成', 'CLI & launch': 'CLI 与启动',
   'Settings are read-only while the bridge runs.': '桥接运行期间设置为只读。', 'Manual': '手动', 'Hide': '隐藏', 'Show': '显示', 'Hidden': '已隐藏',
-  'Other supported CLIs': '其他支持的 CLI', 'No CLI detected on PATH': 'PATH 中未检测到 CLI', '＋ Add Role': '＋ 添加角色', '＋ Add CLI Manually': '＋ 手动添加 CLI',
+  'Other supported CLIs': '其他支持的 CLI', 'No CLI detected on PATH': 'PATH 中未检测到 CLI', '＋ Add Role': '＋ 新建角色', '＋ Add CLI Manually': '＋ 手动添加 CLI',
   'Role status': '角色运行状态', 'wait for turn end: all roles': '等待回合结束：所有角色', 'wait for turn end: per role': '等待回合结束：按角色', 'Role': '角色', 'Enabled': '启用', 'On': '开', 'Off': '关', 'Panel': '面板',
   'e.g. --model, resume <id>': '如 --model、resume <id>', 'Model, conversation id and other CLI flags go in Raw arguments.': '模型、会话 ID 等 CLI 参数请填写在原始参数中。',
   'Press Start Conductor to launch this CLI here.': '点击“启动调度”后，此 CLI 会在这里运行。', 'Enable at least two roles in the sidebar.': '请在左侧至少启用两个角色。',
@@ -56,6 +56,7 @@ const ZH = {
   "archive only": "仅存档",
   "restarting": "重启中",
   "stopped": "已停止",
+  "not started": "未启动",
   "Role Dock": "角色 Dock",
   "On stage": "在主区",
   "Muted": "已静音",
@@ -69,6 +70,14 @@ const ZH = {
   "restarting…": "正在重启…",
   "Restarting: exiting and relaunching with the same arguments…": "重启中：正在退出并以相同参数重新启动…",
   "Restart this CLI (same arguments)": "重启此 CLI（相同参数）",
+  "Start this role": "启动此角色",
+  "Role actions": "角色操作",
+  "Tip: use ⋯ — no need to right-click": "小贴士：用 ⋯ 操作，不用右键",
+  "Dismiss": "关闭",
+  "Click to stage · press and drag to reorder": "单击上台 · 按住拖动排序",
+  "Stopped": "已停止",
+  "Stage auto-filled": "舞台已自动补位",
+  
   "Focus mode (double-click the title bar) · Esc to exit": "专注模式（或双击标题栏）· Esc 退出",
   "Click to expand": "单击展开",
   "Drag to resize · click to collapse": "拖动调整宽度 · 单击收起",
@@ -106,7 +115,12 @@ const ZH = {
   "target_needs_attention": "目标需要处理",
   "waiting_for_turn_end": "等待回合结束",
   "one_delivery_per_poll": "每轮只投递一条",
-  "Accounts": "账号",
+  "Extra Codex accounts use the non-admin (unelevated) Windows sandbox, so they cannot break the Codex Desktop sandbox.": "额外的 Codex 账号使用非管理员（unelevated）Windows 沙箱，避免破坏 Codex Desktop 的沙箱设置。",
+  "Save & start": "保存并启动",
+  "Stop & remove": "停止并移除",
+  "Stop and remove this role?": "停止并移除该角色？",
+  "Save": "保存",
+"Accounts": "账号",
   "New account": "新建账号",
   "Re-login": "重新登录",
   "Open folder": "打开文件夹",
@@ -123,6 +137,14 @@ const ZH = {
   "Click to switch between 2 and 3 terminals side by side.": "点击切换并排 2 / 3 个终端。",
   "Collapse both side panels to show 3 terminals side by side.": "收起左右两侧面板即可并排显示 3 个终端。",
   "Stop the bridge and exit all CLIs": "停止桥接并退出所有 CLI",
+  "Started": "已启动",
+  "Note: shared CLI account": "提示：多个角色共用同一 CLI 账号（可在角色设置里分开账号）",
+  "Pick a CLI": "请选择 CLI",
+  "Enter a role name": "请输入角色名",
+  "Start role": "启动角色",
+  "This starts a new CLI in the running Conductor without restarting.": "会在不重启调度的情况下立刻启动新的 CLI。",
+  "Launch now": "立即启动",
+  "Cannot add a role while Conductor is running. Stop Conductor, add the role, then start again.": "运行中无法新建角色。请先停止调度，添加角色后再启动。",
 };
 const ERR_ZH = {
   ALREADY_RUNNING: '桥接已在运行', WORKSPACE_MISSING: '工作区文件夹不存在', ROLES_INVALID: '至少需要启用两个角色',
@@ -134,7 +156,7 @@ const ERR_ZH = {
   REF_ESCAPE: '引用文件必须位于工作区内', REF_MISSING: '引用文件不存在', REF_HASH_MISMATCH: '引用文件哈希不匹配', QUEUED: '消息已排队',
   ACCOUNT_DUPLICATE: '多个角色使用同一 CLI 的同一账号', ACCOUNT_UNSUPPORTED: '此 CLI 不支持多账号', ACCOUNT_MISSING: '账号文件夹不存在', ACCOUNT_EXISTS: '账号已存在', ACCOUNT_NAME_INVALID: '账号名无效（仅限 a-z、0-9、- 或 _，最多 32 个字符）', ROLE_RESTARTING: '该角色正在重启', ROLE_OFFLINE: '该角色已离线',
 };
-let LANG = (() => { try { const s = localStorage.ccLang; if (s === 'zh' || s === 'en') return s; } catch { } return /^zh/i.test(navigator.language || '') ? 'zh' : 'en'; })();
+let LANG = (() => { try { const s = localStorage.tbLang; if (s === 'zh' || s === 'en') return s; } catch { } return /^zh/i.test(navigator.language || '') ? 'zh' : 'en'; })();
 function t(s) { return LANG === 'zh' && ZH[s] !== undefined ? ZH[s] : s; }
 // Backend errors look like CODE or CODE:detail or "CODE: text".
 function tErr(msg) {
@@ -154,7 +176,7 @@ function translateStatic(root = document.body) {
   const ph = document.querySelector('#presetSel option[value=""]'); if (ph) ph.textContent = t('Choose a preset...');
 }
 function setLang(l, rerender) {
-  LANG = l; try { localStorage.ccLang = l; } catch { }
+  LANG = l; try { localStorage.tbLang = l; } catch { }
   document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en';
   document.title = t('CLI Conductor');
   const b = document.getElementById('btnLang'); if (b) { b.querySelectorAll('span[data-l]').forEach(s => s.classList.toggle('on', s.dataset.l === l)); b.title = t('Language'); }
@@ -167,16 +189,16 @@ const BRIEFING_TEMPLATES = {
 Your duty: <describe what {role} is responsible for>.
 Other roles: {peers}.
 How it works:
-- Messages from other roles arrive in this terminal as a block starting with [CLIConductor <id> FROM->TO]. Each one tells you whether a reply is required and the exact command to reply with.
+- Messages from other roles arrive in this terminal as a block starting with [TerminalBridge <id> FROM->TO]. Each one tells you whether a reply is required and the exact command to reply with.
 - To send a message or reply, run: {send} -From {role} -To <ROLE> -Message "<text>" (for long or multi-line text write it to a UTF-8 file and use -MessagePath <file>; add -NoReply when no answer is needed). It prints QUEUED <id> or ERROR. The bridge delivers it to that role automatically; do not edit outbox files by hand.
 - The other role cannot see your terminal. Keep every message self-contained: state the goal, what you did, results, and file paths (inside the workspace) they need.
 - Only message a role when you need something from it or are reporting a result. Stay within your duty.
 Reply "ready" in this terminal (no bridge message needed) and wait for the first task.`,
-  zh: `你是 {role}，是在工作区 {workspace} 中通过 CLI 调度台 协作的几个 AI 代理之一。
+  zh: `你是 {role}，是在工作区 {workspace} 中通过 CLI 调度台协作的几个 AI 代理之一。
 你的职责：<请填写 {role} 负责的工作>。
 其他角色：{peers}。
 协作方式：
-- 其他角色发来的消息会以 [CLIConductor <id> 发送方->接收方] 开头的文本块出现在本终端中，并注明是否需要回复以及回复所用的确切命令。
+- 其他角色发来的消息会以 [TerminalBridge <id> 发送方->接收方] 开头的文本块出现在本终端中，并注明是否需要回复以及回复所用的确切命令。
 - 发送消息或回复时运行：{send} -From {role} -To <角色名> -Message "<内容>"（长文本或多行内容请写入 UTF-8 文件并用 -MessagePath <文件>；不需要回复时加 -NoReply）。命令会输出 QUEUED <id> 或 ERROR。桥接会自动把它投递给对方；不要手动编辑 outbox 文件。
 - 对方看不到你的终端。每条消息都要完整自足：写清目标、你做了什么、结果，以及对方需要的文件路径（必须在工作区内）。
 - 只在需要对方协助或汇报结果时才发消息，专注于你的职责。

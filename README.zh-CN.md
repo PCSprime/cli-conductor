@@ -100,6 +100,16 @@ npm start        # http://127.0.0.1:7430
 
 **如何运行测试？** `npm test`，或逐个文件运行：`node --test test/unit.test.js`。集成测试会在真实 ConPTY 中驱动一个假 CLI（约 20 秒）。
 
+## 故障排查：Codex Desktop 显示「Windows 设置未完成」
+
+Codex 的 Windows 沙箱设置记录按 `CODEX_HOME` 分别保存，但沙箱用户（`CodexSandboxOffline` / `CodexSandboxOnline`）是整台电脑共用的。在额外账号里执行*管理员（elevated）*沙箱设置会重置这些用户的密码，导致 Codex Desktop 使用的默认 `~/.codex` 失效（[openai/codex#40627](https://github.com/openai/codex/issues/40627)）。因此本工具会在每个额外 Codex 账号的 `config.toml` 中写入 `[windows] sandbox = "unelevated"`（创建、登录、启动时）。本工具从不修改 `~/.codex`，也不执行沙箱设置。
+
+恢复步骤：
+1. 退出 Codex Desktop，并停止这里所有 Codex 角色。
+2. 在 Codex Desktop 点击「重新设置」并同意管理员提示；或在管理员终端（不设置 `CODEX_HOME`）运行 `codex sandbox setup --elevated --current-user`。
+3. 仍失败时，查看最新的 `%USERPROFILE%\.codex\.sandbox\sandbox.*.log`（1326 = 密码失效，32 = 文件被占用）。
+4. 临时办法：在 `~/.codex/config.toml` 中设置 `[windows] sandbox = "unelevated"`（部分写入工作区功能可能受限）。
+
 ## 参与贡献
 
 欢迎提交 Issue 和 Pull Request。请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)、[行为准则](CODE_OF_CONDUCT.md) 和 [SECURITY.md](SECURITY.md)。

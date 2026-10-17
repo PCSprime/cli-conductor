@@ -9,7 +9,7 @@ let ui = { recentDirs: [], hiddenAdapters: [] };
 
 async function api(method, url, body) {
   let r;
-  try { r = await fetch(url, { method, headers: { 'content-type': 'application/json', 'x-cli-conductor': '1' }, body: body ? JSON.stringify(body) : undefined }); }
+  try { r = await fetch(url, { method, headers: { 'content-type': 'application/json', 'x-terminal-bridge': '1' }, body: body ? JSON.stringify(body) : undefined }); }
   catch { throw new Error(t('Cannot reach the server. Is npm start running?')); }
   const text = await r.text().catch(() => '');
   let j = null; try { j = text ? JSON.parse(text) : {}; } catch { j = null; }
@@ -51,7 +51,7 @@ let wsValue = '';
 function renderWorkspace() { const r = $('wsRow'); r.innerHTML = ''; r.append(folderField({ value: wsValue, placeholder: 'C:\\path\\to\\project', onchange: v => { wsValue = v; renderFoot(); } })); renderFoot(); }
 function renderFoot() {
   const sum = $('runSum'), why = $('startWhy'), start = $('btnStart');
-  if (status.running) { const b = status.bridge || {}; sum.textContent = `${t('Running')} · ${status.roles.length} ${t('roles')} · ${t('Workspace')} ${b.workspace || wsValue}`; sum.title = sum.textContent; why.textContent = ''; return; }
+  if (status.running) { const b = status.bridge || {}; sum.textContent = `${t('Running')} · ${roleCountText(status.roles)} · ${t('Workspace')} ${b.workspace || wsValue}`; sum.title = sum.textContent; why.textContent = ''; return; }
   const n = roles.filter(r => r.enabled).length, w = wsValue.trim();
   sum.textContent = `${n} ${t('roles enabled')} · ${t('Workspace')} ${w || '—'}`; sum.title = sum.textContent;
   const reason = !w ? t('Set a workspace folder first.') : n < 2 ? t('Enable at least two roles.') : '';
@@ -62,35 +62,96 @@ function renderFoot() {
 
 // ---------- roles (sidebar list + popover editor) ----------
 let roles = [
-  { enabled: true, name: 'CODER', type: 'agent', adapter: 'codex', delivery: 'immediate', cwd: '', args: '', briefing: '' },
-  { enabled: true, name: 'REVIEWER', type: 'agent', adapter: 'claude', delivery: 'immediate', cwd: '', args: '', briefing: '' },
+  { enabled: true, name: 'CODER', type: 'agent', adapter: 'qodercn', delivery: 'immediate', cwd: '', args: '', briefing: '' },
+  { enabled: true, name: 'REVIEWER', type: 'agent', adapter: 'codex', delivery: 'immediate', cwd: '', args: '', briefing: '' },
   { enabled: false, name: 'ARCHIVE', type: 'observer', adapter: '', delivery: 'archive_only', cwd: '', args: '', briefing: '' },
 ];
 function roleSub(r) { return r.type === 'observer' ? t('archive · inbox only') : `${adapterLabel(r.adapter)} · ${r.delivery === 'after_turn' ? t('after turn') : t('immediate')}`; }
+// Full left-list roster: always config roles (tbLast), overlaid with live status when running.
+// Roles disabled at Start (or not yet spawned) stay listed as stopped/off so they can be powered on.
+function rosterList() {
+  if (!status.running) return roles.slice();
+  const live = new Map((status.roles || []).map(r => [r.name, r]));
+  const out = [], seen = new Set();
+  for (const cfg of roles) {
+    const name = cfg.name;
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    const L = live.get(name);
+    if (L) out.push({ ...cfg, ...L, name: L.name || name });
+    else out.push({
+      ...cfg,
+      name,
+      state: cfg.type === 'observer' ? 'archive' : 'offline',
+      stopped: cfg.type !== 'observer',
+      pid: 0,
+      label: cfg.label,
+      notInRun: true,
+    });
+  }
+  for (const L of (status.roles || [])) {
+    if (seen.has(L.name)) continue;
+    if (L.stopped && typeof hiddenRoles !== 'undefined' && hiddenRoles.has(L.name)) continue;
+    seen.add(L.name);
+    out.push({ ...L });
+  }
+  return out;
+}
+function rosterRole(i) { return rosterList()[i]; }
+function rosterByName(n) { return rosterList().find(r => r.name === n); }
+
 // open: true (anchor to the left list row) or the element that was clicked (Dock card, rail icon, placeholder).
 // Clicking the role whose popover is already open closes it (toggle); another role switches it.
 function select(i, open) {
   if (open && popOpen && i === selIdx) return closePop();
   selIdx = i;
-  const r = roles[i];
+  const r = status.running ? rosterRole(i) : roles[i];
   const anchor = open === true ? document.querySelector(`#roles .rrow[data-i="${i}"]`) : open;
   if (!status.running && r) { if (r.enabled && r.type !== 'observer') { preSwap(r); if (open) openPop(anchor); else if (popOpen) openPop(popAnchorFor(i)); return; } preLast.set(r, Date.now()); }
   renderRoles(); highlightTerm(); if (open) openPop(anchor); else if (popOpen) renderPop();
 }
 function renderRoles() {
+  const side = document.querySelector('.side');
+  const keepScroll = side ? side.scrollTop : 0;
   const box = $('roles'); box.innerHTML = '';
   const running = status.running;
-  const list = running ? status.roles : roles;
+  const list = rosterList();
+  if (selIdx >= list.length) selIdx = Math.max(0, list.length - 1);
   list.forEach((r, i) => {
     const sel = i === selIdx;
-    const check = running ? null : el('input', { type: 'checkbox', class: 'check', ...(r.enabled ? { checked: '' } : {}), onclick: e => { e.stopPropagation(); r.enabled = e.target.checked; renderRoles(); renderPlaceholders(); } });
-    box.append(el('div', { class: 'row rrow' + (sel ? ' sel' : '') + (!running && !r.enabled ? ' off' : ''), 'data-i': i, onclick: () => select(i, true) },
+    const live = running && (status.roles || []).some(x => x.name === r.name && !x.stopped);
+    const stopped = !!(running && (r.stopped || r.notInRun || r.state === 'offline') && r.type !== 'observer');
+    const check = running ? null : el('input', { type: 'checkbox', class: 'check', ...(r.enabled ? { checked: '' } : {}), onclick: e => { e.stopPropagation(); r.enabled = e.target.checked; const cfg = roles.find(x => x.name === r.name); if (cfg) cfg.enabled = r.enabled; renderRoles(); renderPlaceholders(); } });
+    let power = null;
+    if (running && r.type !== 'observer') {
+      const on = live;
+      const toggle = () => { if (on) stopRole(r.name); else startRole(r.name); };
+      power = el('button', {
+        class: 'switch sm role-power' + (on ? ' on' : ''),
+        type: 'button',
+        title: on ? t('Stop this role') : t('Start this role'),
+        'aria-label': on ? t('Stop this role') : t('Start this role'),
+        onpointerdown: e => { e.stopPropagation(); },
+        onpointerup: e => { e.stopPropagation(); },
+        onclick: e => { e.preventDefault(); e.stopPropagation(); toggle(); }
+      });
+    }
+    const trail = running
+      ? el('div', { class: 'k powerk' }, power || '', el('span', { class: 'dot ' + (r.type === 'observer' ? 'archive' : (stopped ? 'offline' : r.state)) }))
+      : el('div', { class: 'k' }, el('span', { class: 'gear' }, '›'), el('span', { class: 'dot ' + (r.enabled ? 'idle' : 'offline') }));
+    const sub = running
+      ? (r.type === 'observer' ? t('archive · inbox only') : (stopped ? (r.notInRun ? t('not started') : t('stopped')) : `${r.label || r.adapter} · ${stateText(r.state)}`))
+      : roleSub(r);
+    box.append(el('div', { class: 'row rrow' + (sel ? ' sel' : '') + ((!running && !r.enabled) || stopped ? ' off' : ''), 'data-i': i, 'data-role': r.name || '', onclick: () => select(i, true) },
       el('div', { class: 'k' }, check, el('div', { class: 'icon', style: `background:${roleColor(r, i)}` }, (r.name || '?')[0]),
-        el('div', { style: 'min-width:0' }, el('div', { class: 'nm' }, r.name || '—'), el('div', { class: 'v' }, running ? (r.type === 'observer' ? t('archive · inbox only') : `${r.label || r.adapter} · ${stateText(r.state)}`) : roleSub(r)))),
-      el('div', { class: 'k' }, el('span', { class: 'gear' }, '›'), el('span', { class: 'dot ' + (running ? r.state : (r.enabled ? 'idle' : 'offline')) }))));
+        el('div', { style: 'min-width:0' }, el('div', { class: 'nm' }, r.name || '—'), el('div', { class: 'v' }, sub))),
+      trail));
   });
-  $('btnAddRole').classList.toggle('hidden', running);
+  // Always show add control (hot-add while running via /api/add-role).
+  $('btnAddRole').classList.remove('hidden');
+  $('btnAddRole').textContent = t('＋ Add Role');
   renderFoot(); renderSideRail();
+  if (side) side.scrollTop = keepScroll;
 }
 // ---------- popover anchoring ----------
 // The anchor kind is remembered; the element is looked up again on every reposition because
@@ -100,7 +161,7 @@ const anchorKind = e => !e ? 'row' : e.closest('#dock') ? 'dock' : e.closest('#s
 const visible = e => !!(e && e.offsetParent !== null && e.getClientRects().length);
 function popAnchorFor(i) { return findAnchor(popKind, i); }
 function findAnchor(kind, i) {
-  const name = status.running ? (status.roles[i] || {}).name : null;
+  const name = status.running ? (rosterRole(i) || {}).name : null;
   const q = {
     dock: status.running ? `#dock .dc[data-role="${name}"]` : `#dock .dc[data-i="${i}"]`,
     rail: `#srail .ri.role[data-i="${i}"]`,
@@ -134,9 +195,10 @@ function positionPop() {
   pop.style.setProperty('--arrow', (Math.max(14, Math.min(h - 28, r.top + r.height / 2 - top - 7))) / Z + 'px');
 }
 let popRO = null;
-function openPop(anchor) {
+function openPop(anchor, opts = {}) {
+  if (anchor && anchor !== true && !visible(anchor)) anchor = null;
   if (anchor && anchor !== true) popKind = anchorKind(anchor); else { popKind = 'row'; anchor = document.querySelector(`#roles .rrow[data-i="${selIdx}"]`); }
-  if (popKind === 'row' && anchor && visible(anchor)) anchor.scrollIntoView({ block: 'nearest' });
+  if (!opts.skipScroll && !opts.fromAdd && popKind === 'row' && anchor && visible(anchor)) anchor.scrollIntoView({ block: 'nearest' });
   popOpen = true; renderPop(); $('pop').classList.add('show');
   if (popRO) popRO.disconnect(); popRO = new ResizeObserver(() => positionPop()); popRO.observe($('pop')); if (anchor) popRO.observe(anchor);
   requestAnimationFrame(positionPop);
@@ -145,16 +207,25 @@ function closePop() { if (!popOpen) return; popOpen = false; $('pop').classList.
 function renderPop() {
   const box = $('popIn'); box.innerHTML = '';
   if (status.running) {
-    const r = status.roles[selIdx]; if (!r) return closePop();
+    const r = rosterRole(selIdx); if (!r) return closePop();
+    const sess = (status.roles || []).find(x => x.name === r.name);
+    const cfgI = roles.findIndex(x => x.name === r.name);
+    if (cfgI >= 0 && (!sess || (sess.stopped && r.type !== 'observer'))) { renderRoleEditor(roles[cfgI], cfgI, box, true); requestAnimationFrame(positionPop); return; }
     const rows = [[t('Type'), r.type === 'observer' ? t('Archive') : t('Agent')]];
     if (r.type !== 'observer') rows.push([t('CLI'), r.label || r.adapter], [t('Delivery'), r.delivery === 'after_turn' ? t('After turn') : t('Immediate')], [t('Status'), stateText(r.state)], ['PID', r.pid || '—'], [t('Account'), acct.supported[r.adapter] ? (r.account || t('Default')) : '—'], [t('Working folder'), r.cwd || '—'], [t('Opening briefing'), r.briefing ? t('On') : t('Off')], [t('Final command'), [r.file || '', ...(r.args || [])].join(' ')]);
     box.append(el('div', { class: 'label' }, el('span', {}, `${r.name} · ${t('Role settings')}`)), el('div', { class: 'group' }, rows.map(([a, b]) => el('div', { class: 'row' }, el('span', {}, a), el('span', { class: 'v', title: String(b) }, b)))),
-      el('div', { class: 'foot' }, t('Settings are read-only while the bridge runs.')));
+      el('div', { class: 'foot' }, t('Settings are read-only while the bridge runs.')),
+      el('div', { style: 'margin-top:12px;display:flex;justify-content:space-between' }, el('button', { class: 'link red', onclick: async () => { if (!confirm(`${t('Stop and remove this role?')} ${r.name}`)) return; if (r.type !== 'observer' && !r.stopped) await stopRole(r.name, { ask: false }); removeRoleByName(r.name); } }, t('Stop & remove')), el('button', { class: 'btn sm', onclick: closePop }, t('Done'))));
     requestAnimationFrame(positionPop); return;
   }
   const r = roles[selIdx]; if (!r) return closePop();
-  const i = selIdx;
-  const name = el('input', { type: 'text', class: 'field mono', style: 'flex:none;width:170px', value: r.name, placeholder: 'ROLE_NAME', oninput: e => { r.name = e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''); e.target.value = r.name; renderRoles(); renderPlaceholders(); box.querySelector('.ttl').textContent = `${r.name || '—'} · ${t('Role settings')}`; } });
+  renderRoleEditor(r, selIdx, box, false);
+  requestAnimationFrame(positionPop);
+}
+// One full role form for both states. Stopped: edit the roster. Running: edit a not-yet-started
+// roster role, with an extra "Save & start" (hot-add via startRole -> /api/add-role with all params).
+function renderRoleEditor(r, i, box, running) {
+  const name = el('input', { type: 'text', class: 'field mono', style: 'flex:none;width:170px', value: r.name, ...(running && (status.roles || []).some(x => x.name === r.name) ? { disabled: '' } : {}), placeholder: 'ROLE_NAME', oninput: e => { r.name = e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, ''); e.target.value = r.name; renderRoles(); renderPlaceholders(); box.querySelector('.ttl').textContent = `${r.name || '—'} · ${t('Role settings')}`; } });
   const typeSeg = seg([['agent', t('Agent')], ['observer', t('Archive')]], r.type, v => { r.type = v; if (v === 'observer') r.delivery = 'archive_only'; else if (r.delivery === 'archive_only') r.delivery = 'immediate'; renderRoles(); renderPop(); renderPlaceholders(); });
   const en = el('button', { class: 'switch sm' + (r.enabled ? ' on' : ''), onclick: () => { r.enabled = !r.enabled; sw(en, r.enabled); renderRoles(); renderPlaceholders(); } });
   box.append(el('div', { class: 'label' }, el('span', { class: 'ttl' }, `${r.name || '—'} · ${t('Role settings')}`)),
@@ -177,8 +248,33 @@ function renderPop() {
       el('div', { class: 'label' }, el('span', {}, t('Opening briefing')), el('button', { class: 'link', type: 'button', onclick: () => { if (ta.value.trim() && !confirm(t('Replace the current briefing with the default template?'))) return; ta.value = r.briefing = briefingTemplate(); } }, t('Insert default template'))),
       el('div', { class: 'group' }, el('div', { class: 'row stack' }, ta)));
   }
-  box.append(el('div', { style: 'margin-top:12px;display:flex;justify-content:space-between' }, el('button', { class: 'link red', onclick: () => { roles.splice(i, 1); selIdx = Math.max(0, Math.min(selIdx, roles.length - 1)); closePop(); renderRoles(); renderPlaceholders(); } }, t('Remove Role')), el('button', { class: 'btn sm', onclick: closePop }, t('Done'))));
-  requestAnimationFrame(positionPop);
+  box.append(roleEditorFoot(r, i, running));
+}
+// While running: stopped sessions the user removed from the roster stay hidden.
+const hiddenRoles = new Set();
+function saveRoster() { try { localStorage.tbLast = JSON.stringify(launchConfig()); } catch { } }
+function removeRoleByName(name) {
+  const k = roles.findIndex(x => x.name === name); if (k >= 0) roles.splice(k, 1);
+  if (status.running && (status.roles || []).some(x => x.name === name)) hiddenRoles.add(name);
+  selIdx = Math.max(0, Math.min(selIdx, rosterList().length - 1));
+  closePop(); saveRoster(); renderRoles(); renderPlaceholders();
+  if (status.running && typeof renderDock === 'function') renderDock();
+}
+function roleEditorFoot(r, i, running) {
+  const del = el('button', { class: 'link red', onclick: () => { if (!confirm(`${t('Remove Role')} ${r.name}?`)) return; if (running) removeRoleByName(r.name); else { roles.splice(i, 1); selIdx = Math.max(0, Math.min(selIdx, roles.length - 1)); closePop(); saveRoster(); renderRoles(); renderPlaceholders(); } } }, t('Remove Role'));
+  const right = running
+    ? el('div', { style: 'display:flex;gap:8px' },
+      el('button', { class: 'btn sm', onclick: () => { saveRoster(); closePop(); renderRoles(); toast(`${t('Saved')} ${r.name}`); } }, t('Save')),
+      el('button', { class: 'btn sm primary', onclick: async (e) => {
+        const btn = e.currentTarget; if (btn.disabled) return;
+        const n = String(r.name || '').trim(); if (!n) return toast(t('Enter a role name'));
+        if (r.type !== 'observer' && !r.adapter) return toast(t('Pick a CLI'));
+        btn.disabled = true;
+        try { hiddenRoles.delete(n); saveRoster(); closePop(); await startRole(n); }
+        catch (err) { toast(err.message || String(err)); }
+      } }, t('Save & start')))
+    : el('button', { class: 'btn sm', onclick: closePop }, t('Done'));
+  return el('div', { style: 'margin-top:12px;display:flex;justify-content:space-between;align-items:center' }, del, right);
 }
 
 // ---------- per-CLI launch options (lib/cliflags.js capabilities) ----------
@@ -265,14 +361,24 @@ function renderAdapters() {
 }
 function addRole(adapterId) {
   const base = adapterId ? adapterId.toUpperCase().replace(/[^A-Z0-9_]/g, '_') : 'AGENT';
-  let n = roles.length + 1, name = `${base}_${n}`; while (roles.some(r => r.name === name)) name = `${base}_${++n}`;
-  roles.push({ enabled: true, name, type: 'agent', adapter: adapterId || (adapters.find(a => a.path) || adapters[0] || {}).id, delivery: 'immediate', cwd: '', args: '', briefing: '' });
-  renderPlaceholders(); select(roles.length - 1, true);
+  let n = roles.length + 1, name = `${base}_${n}`; while (roles.some(r => r.name === name) || (status.roles || []).some(r => r.name === name)) name = `${base}_${++n}`;
+  roles.push({ enabled: true, name, type: 'agent', adapter: adapterId || (adapters.find(a => a.path) || adapters[0] || {}).id, delivery: 'immediate', cwd: '', args: '', briefing: '', account: '', options: {} });
+  saveRoster();
+  const i = status.running ? Math.max(0, rosterList().findIndex(r => r.name === name)) : roles.length - 1;
+  selIdx = i;
+  renderRoles();
+  renderPlaceholders();
+  if (!status.running) {
+    const r = roles[i];
+    if (r && r.enabled && r.type !== 'observer') preSwap(r);
+  }
+  openPop(document.querySelector(`#roles .rrow[data-i="${i}"]`), { fromAdd: true });
+  requestAnimationFrame(() => { const inp = $('popIn') && $('popIn').querySelector('input.field.mono'); if (inp) { inp.focus(); inp.select(); } });
 }
 let idleMs = 3000;
 function renderIdle() { seg([[2000, '2 s'], [3000, '3 s'], [5000, '5 s']], idleMs, v => idleMs = Number(v), $('optIdle')); }
 function launchConfig() { return { workspace: wsValue.trim(), roles: JSON.parse(JSON.stringify(roles)), waitTurnEnd: sw($('optWait')), idleMs }; }
-function applyConfig(c) { wsValue = c.workspace || ''; roles = c.roles || roles; selIdx = 0; sw($('optWait'), c.waitTurnEnd); idleMs = Number(c.idleMs || 3000); renderWorkspace(); renderIdle(); renderRoles(); renderPlaceholders(); if (popOpen) renderPop(); localStorage.ccLast = JSON.stringify(c); }
+function applyConfig(c) { wsValue = c.workspace || ''; roles = c.roles || roles; selIdx = 0; sw($('optWait'), c.waitTurnEnd); idleMs = Number(c.idleMs || 3000); renderWorkspace(); renderIdle(); renderRoles(); renderPlaceholders(); if (popOpen) renderPop(); localStorage.tbLast = JSON.stringify(c); }
 async function loadPresets() { const p = await api('GET', '/api/presets'); const s = $('presetSel'); s.innerHTML = `<option value="">${t('Choose a preset...')}</option>`; for (const k of Object.keys(p)) s.append(el('option', { value: k }, k)); loadPresets.data = p; }
 
 // ---------- center ----------
@@ -308,7 +414,7 @@ function buildPreDock(box) {
     const i = roles.indexOf(r), k = on.indexOf(r);
     const arch = r.type === 'observer', isOn = k >= 0;
     const c = el('div', { class: 'dc' + (arch ? ' arch' : '') + (isOn ? ' onstage' : '') + (i === selIdx ? ' cur' : ''), draggable: arch ? 'false' : 'true', 'data-onstage': t('On stage'), 'data-i': i,
-      onclick: e => { const c = e.currentTarget; if (arch) return select(i, c); if (popOpen && selIdx === i) return closePop(); const was = popOpen; preSwap(r); if (was) { selIdx = i; openPop(document.querySelector(`#dock .dc[data-i="${i}"]`)); } }, ondragstart: e => { e.dataTransfer.setData('text/cc-pre', String(i)); document.body.classList.add('dragging'); }, ondragend: () => document.body.classList.remove('dragging') },
+      onclick: e => { const c = e.currentTarget; if (arch) return select(i, c); if (popOpen && selIdx === i) return closePop(); const was = popOpen; preSwap(r); if (was) { selIdx = i; openPop(document.querySelector(`#dock .dc[data-i="${i}"]`)); } }, ondragstart: e => { e.dataTransfer.setData('text/tb-pre', String(i)); document.body.classList.add('dragging'); }, ondragend: () => document.body.classList.remove('dragging') },
       el('div', { class: 'n' }, el('span', { class: 'slotb' }, k >= 0 ? SLOT_MARK[k] : ''), el('span', { class: 'dot ' + (arch ? 'archive' : 'offline') }), el('b', {}, r.name || '—'), el('em', {}, arch ? t('archive only') : `${adapterLabel(r.adapter)} · ${r.delivery === 'after_turn' ? t('after turn') : t('immediate')}`)),
       el('div', { class: 'l' }, arch ? t('archive · inbox only') : cmdLine(r)), el('div', { class: 'key' }, i < 9 && !arch ? `Ctrl+${i + 1}` : ''));
     box.append(c);
@@ -333,7 +439,7 @@ function preSwap(r, slot) {
 }
 function highlightTerm() {
   if (!status.running) { renderPlaceholders(); return; }
-  const n = (status.roles[selIdx] || {}).name;
+  const n = ((status.running ? rosterRole(selIdx) : status.roles[selIdx]) || {}).name;
   for (const [k, v] of Object.entries(terms)) v.card.classList.toggle('sel', k === n);
 }
 
@@ -352,7 +458,11 @@ function renderFeed() {
   for (const e of shown) box.append(el('div', { class: 'row' }, el('div', { class: 'ev' }, el('span', { class: 'time' }, fmtTime(e.ts)), el('span', { class: 'tag2 ' + e.kind }, t(e.kind.replace('_', ' ').toLowerCase())), el('span', { class: 'txt', title: eventText(e) }, eventText(e)))));
 }
 function setRunningLock(running) {
-  for (const e of document.querySelectorAll('.side input, .side select, .side .switch, #btnAddCli, #optIdle button')) { if (e.id === 'presetName' || e.id === 'presetSel') continue; e.disabled = running; }
+  for (const e of document.querySelectorAll('.side input, .side select, .side .switch, #btnAddCli, #optIdle button')) {
+    if (e.id === 'presetName' || e.id === 'presetSel') continue;
+    if (e.classList.contains('role-power')) continue; // per-role start/stop must stay clickable
+    e.disabled = running;
+  }
 }
 function renderStatus() {
   const running = status.running;
@@ -367,7 +477,7 @@ function renderStatus() {
   const b = status.bridge, roleList = status.roles;
   if (selIdx >= roleList.length) selIdx = 0;
   const busy = roleList.filter(r => r.state === 'busy').length;
-  $('pill').innerHTML = `<span class="dot ${b.paused ? 'busy' : 'idle'}"></span>${b.paused ? t('Paused') : t('Bridge running')} · ${roleList.length} ${t('roles')} · ${b.counts.held} ${t('held')}${busy ? ` · ${busy} ${t('working')}` : ''} · ${b.waitTurnEnd ? t('wait for turn end: all roles') : t('wait for turn end: per role')}`;
+  $('pill').innerHTML = `<span class="dot ${b.paused ? 'busy' : 'idle'}"></span>${b.paused ? t('Paused') : t('Bridge running')} · ${roleCountText(roleList)} · ${b.counts.held} ${t('held')}${busy ? ` · ${busy} ${t('working')}` : ''} · ${b.waitTurnEnd ? t('wait for turn end: all roles') : t('wait for turn end: per role')}`;
   renderRoles(); renderAdapters(); if (!renderStatus.ws) { renderWorkspace(); renderStatus.ws = 1; }
   sw($('swPause'), b.paused);
   const sl = $('statusList'); sl.innerHTML = '';
@@ -375,7 +485,7 @@ function renderStatus() {
   for (const h of b.held.slice(0, 5)) sl.append(el('div', { class: 'row' }, el('span', { class: 'v' }, `${t('held')} → ${h.to}`), el('span', { class: 'v' }, t(h.reason))));
   const rr = $('roleRun'); rr.innerHTML = '';
   for (const r of roleList) rr.append(el('div', { class: 'row' }, el('div', { class: 'k' }, el('span', { class: 'dot ' + r.state }), r.name), el('span', { class: 'v' }, r.type === 'observer' ? t('inbox only') : `${stateText(r.state)} · PID ${r.pid || '—'} · ${t('turn')} ${r.turns || 0}`)));
-  $('cfgInfo').textContent = `${t('Agents reply with')} tools/cli_conductor_send.ps1 -ConfigPath ${b.configPath}`;
+  $('cfgInfo').textContent = `${t('Agents reply with')} tools/terminal_bridge_send.ps1 -ConfigPath ${b.configPath}`;
   if ($('dock').dataset.mode !== 'run') { $('dock').innerHTML = ''; $('dock').dataset.mode = 'run'; dockCards = {}; $('stage').innerHTML = ''; }
   $('layout').classList.add('running'); $('terms').innerHTML = ''; $('terms').classList.add('hidden'); for (const id of ['stage', 'dock']) $(id).classList.remove('hidden');
   for (const r of roleList) if (r.type !== 'observer') ensureTerm(r); else if (terms[r.name]) { terms[r.name].card.remove(); delete terms[r.name]; }
@@ -451,17 +561,19 @@ async function init() {
   document.addEventListener('scroll', () => popOpen && positionPop(), true);
   [adapters, ui, cliCaps] = await Promise.all([api('GET', '/api/adapters'), api('GET', '/api/ui-state').catch(() => ui), api('GET', '/api/cliflags').catch(() => ({})), loadAccounts()]);
   const def = await api('GET', '/api/defaults');
-  try { applyConfig(JSON.parse(localStorage.ccLast)); } catch { wsValue = def.workspace; renderWorkspace(); renderIdle(); }
+  try { applyConfig(JSON.parse(localStorage.tbLast)); } catch { wsValue = def.workspace; renderWorkspace(); renderIdle(); }
   renderRoles(); renderAdapters(); renderPlaceholders(); renderFeed(); loadPresets();
   relayout();
   $('optWait').onclick = () => sw($('optWait'), !sw($('optWait')));
-  $('btnAddRole').onclick = () => addRole();
+  $('btnAddRole').onclick = () => {
+    addRole(); // same full form in both states; running adds "Save & start"
+  };
   $('btnRescan').onclick = async () => { adapters = await api('GET', '/api/adapters'); renderAdapters(); renderRoles(); toast(t('Rescanned PATH')); };
   $('btnAddCli').onclick = async () => { try { adapters = await api('POST', '/api/adapters', { label: $('mLabel').value, command: $('mCmd').value, args: $('mArgs').value, busy: $('mBusy').value ? [$('mBusy').value] : [], exit: $('mExit').value }); renderAdapters(); toast(t('CLI added')); $('manualCli').open = false; } catch (e) { toast(e.message); } };
   $('btnSavePreset').onclick = async () => { const n = $('presetName').value.trim(); if (!n) return toast(t('Enter a preset name')); await api('POST', '/api/presets', { name: n, config: launchConfig() }); await loadPresets(); toast(`${t('Saved')} "${n}"`); };
   $('btnLoadPreset').onclick = () => { const p = (loadPresets.data || {})[$('presetSel').value]; if (p) { applyConfig(p); toast(t('Preset loaded')); } };
   $('btnDelPreset').onclick = async () => { const n = $('presetSel').value; if (!n) return; await api('DELETE', '/api/presets', { name: n }); await loadPresets(); toast(t('Preset deleted')); };
-  $('btnStart').onclick = async () => { const c = launchConfig(); localStorage.ccLast = JSON.stringify(c); $('btnStart').disabled = true;
+  $('btnStart').onclick = async () => { const c = launchConfig(); localStorage.tbLast = JSON.stringify(c); $('btnStart').disabled = true;
     const dup = duplicateAccounts(c.roles);
     if (dup.length) { if (!confirm(`${t('These roles use the same CLI with the same account and will share one login and session state:')}\n${dup.join('\n')}\n\n${t('Start anyway?')}`)) { renderFoot(); return; } c.allowDuplicateAccounts = true; }
     try { status = await api('POST', '/api/start', c); events = status.events || []; selIdx = 0; closePop(); ui = await api('GET', '/api/ui-state').catch(() => ui); renderStatus(); } catch (e) { toast(e.message); } finally { renderFoot(); } };
@@ -477,3 +589,11 @@ async function init() {
   connect();
 }
 init().catch(e => toast(e.message));
+
+// Running count = live roles (not user-stopped / exited); total shown only when they differ.
+function roleCountText(list) {
+  list = list || [];
+  const live = list.filter(r => r && !r.stopped && !r.userStopped && !['exited', 'offline', 'stopped'].includes(r.state)).length;
+  const total = Math.max(list.length, typeof rosterList === 'function' ? (rosterList() || []).length : 0);
+  return live === total ? `${live} ${t('roles')}` : `${live} ${t('roles running')} / ${total} ${t('roles')}`;
+}

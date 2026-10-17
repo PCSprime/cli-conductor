@@ -70,6 +70,16 @@ Per role: name (UPPER_SNAKE), type (Agent / Archive), CLI, account, delivery (Im
 
 `DELIVERED` means "typed into the terminal and the CLI started working". A CLI cannot confirm that it understood a message.
 
+## Troubleshooting: Codex Desktop says "Windows setup incomplete"
+
+Codex keeps its Windows sandbox setup record per `CODEX_HOME`, but the sandbox users (`CodexSandboxOffline` / `CodexSandboxOnline`) are machine-wide. Running *elevated* sandbox setup under an extra account resets their passwords and breaks the default `~/.codex` used by Codex Desktop ([openai/codex#40627](https://github.com/openai/codex/issues/40627)). This tool therefore writes `[windows] sandbox = "unelevated"` into every extra Codex account's `config.toml` (on create, login and start). It never touches `~/.codex` and never runs sandbox setup.
+
+To recover:
+1. Quit Codex Desktop and stop all Codex roles here.
+2. In Codex Desktop click **Set up again** and approve the admin prompt, or from an admin terminal with `CODEX_HOME` unset run `codex sandbox setup --elevated --current-user`.
+3. If it still fails, check the newest `%USERPROFILE%\.codex\.sandbox\sandbox.*.log` (1326 = stale password, 32 = file in use).
+4. Temporary workaround: set `[windows] sandbox = "unelevated"` in `~/.codex/config.toml` (some workspace-write features may be limited).
+
 ## Limitations
 
 - **Windows only** (ConPTY via node-pty). macOS/Linux would need a PTY backend and are not tested.

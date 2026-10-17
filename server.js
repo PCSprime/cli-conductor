@@ -78,7 +78,8 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
       if (r.type === 'observer') { bridgeRoles[r.name] = { delivery: 'archive_only', send_policy: 'after_turn', session: null }; continue; }
       const a = compile(adapters[r.adapter]);
       const env = a.custom ? {} : accounts.supported(a.id) ? accounts.envFor(accountsDir, a.id, r.account) : {};
-      const s = new RoleSession({ name: r.name, adapter: a, file: a.path, args: cliflags.buildArgs(a.custom ? '' : a.id, r.options, r.args, a.args || []), cwd: path.resolve(workspace, r.cwd || '.'), idleMs: body.idleMs || 3000, cols: 110, rows: 30, env });
+      const args = [...(a.custom || !accounts.supported(a.id) ? [] : accounts.argOverrides(a.id, r.account)), ...cliflags.buildArgs(a.custom ? '' : a.id, r.options, r.args, a.args || [])];
+      const s = new RoleSession({ name: r.name, adapter: a, file: a.path, args, cwd: path.resolve(workspace, r.cwd || '.'), idleMs: body.idleMs || 3000, cols: 110, rows: 30, env });
       s.resumes = !!(r.options && r.options.resume && r.options.resume !== 'off');
       sessions[r.name] = s;
       bridgeRoles[r.name] = { delivery: r.delivery === 'after_turn' ? 'after_turn' : 'immediate', send_policy: 'immediate', session: s };
@@ -104,7 +105,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
       s.start();
       bridge.event('ROLE_STARTED', '', name, '', { pid: s.pid, file: s.file, args: s.args, cwd: s.cwd });
     }
-    run = { bridge, sessions, roles: roles.map(r => ({ name: r.name, type: r.type || 'agent', adapter: r.adapter || null, account: r.account || '', delivery: bridgeRoles[r.name].delivery, briefing: !!bridgeRoles[r.name].briefing })), startedAt: new Date().toISOString() };
+    run = { bridge, sessions, roles: roles.map(r => ({ name: r.name, type: r.type || 'agent', adapter: r.adapter || null, account: r.account || '', delivery: bridgeRoles[r.name].delivery, briefing: !!bridgeRoles[r.name].briefing })), startedAt: new Date().toISOString(), idleMs: body.idleMs || 3000, workspace };
     broadcast({ type: 'status', status: statusPayload() });
     return statusPayload();
   }
@@ -140,6 +141,74 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
     broadcast({ type: 'role', role: s.info() });
     return s.info();
   }
+
+// Hot-add: spawn one more CLI into a running bridge (no full restart).
+  function addRole(body = {}) {
+    if (!run) throw new Error('NOT_RUNNING');
+    const name = String(body.name || '').trim().toUpperCase();
+    if (!ROLE_RE.test(name)) throw new Error(`ROLE_NAME_INVALID:${name} (use UPPER_SNAKE_CASE)`);
+    if (run.sessions[name] || run.roles.some(r => r.name === name) || run.bridge.roles[name]) throw new Error(`ROLE_DUPLICATE:${name}`);
+    const type = body.type === 'observer' ? 'observer' : 'agent';
+    const workspace = run.workspace || run.bridge.workspace;
+    const adapters = Object.fromEntries(scan(allAdapters()).map(a => [a.id, a]));
+    let session = null, delivery = 'archive_only', briefingOn = false, accountWarning = '';
+    if (type === 'observer') {
+      run.bridge.addRole(name, { delivery: 'archive_only', send_policy: 'after_turn', session: null });
+    } else {
+      const adapterId = String(body.adapter || '');
+      const a0 = adapters[adapterId]; if (!a0) throw new Error(`ADAPTER_UNKNOWN:${adapterId}`);
+      if (!a0.path) throw new Error(`ADAPTER_NOT_FOUND:${adapterId} (not on PATH; add it manually with a full path)`);
+      const cwd = path.resolve(workspace, body.cwd || '.');
+      if (!fs.existsSync(cwd)) throw new Error(`CWD_MISSING:${name}=${cwd}`);
+      // Same CLI+account is common (e.g. several Codex roles on default). Hot-add never blocks;
+      // return accountWarning so the UI can show a quiet tip. Cold start still confirms in the UI.
+      const probe = [...run.roles.map(r => ({ name: r.name, adapter: r.adapter, account: r.account || '', type: r.type, enabled: true })),
+        { name, adapter: adapterId, account: body.account || '', type: 'agent', enabled: true }];
+      const dups = accounts.duplicates(probe);
+      accountWarning = dups.length
+        ? dups.map(d => `${d.adapter}/${d.account}: ${d.roles.join(', ')}`).join('; ')
+        : '';
+      const a = compile(a0);
+      const env = a.custom ? {} : accounts.supported(a.id) ? accounts.envFor(accountsDir, a.id, body.account) : {};
+      const idleMs = run.idleMs || 3000;
+      const args = [...(a.custom || !accounts.supported(a.id) ? [] : accounts.argOverrides(a.id, body.account)), ...cliflags.buildArgs(a.custom ? '' : a.id, body.options, body.args, a.args || [])];
+      session = new RoleSession({
+        name, adapter: a, file: a0.path,
+        args, cwd, idleMs, cols: 110, rows: 30, env,
+      });
+      session.resumes = !!(body.options && body.options.resume && body.options.resume !== 'off');
+      delivery = body.delivery === 'after_turn' ? 'after_turn' : 'immediate';
+      const entry = { delivery, send_policy: 'immediate', session };
+      if (String(body.briefing || '').trim()) {
+        const peerList = run.roles.map(r => r.type === 'observer' ? `${r.name} (archive only)` : r.name).join(', ');
+        const sendScript = run.bridge.sendScript;
+        const configPath = run.bridge.configPath;
+        entry.briefing = fillBriefing(body.briefing, { role: name, peers: peerList, workspace, send: `pwsh -File "${sendScript}" -ConfigPath "${configPath}"` });
+        briefingOn = true;
+      }
+      run.bridge.addRole(name, entry);
+      session.on('output', d => broadcast({ type: 'output', role: name, data: d }));
+      session.on('state', st => { broadcast({ type: 'role', role: session.info() }); if (st.state === 'attention') run.bridge.event('ATTENTION', '', '', name, { prompt: st.prompt }); });
+      session.on('turn_end', t => run.bridge.event('TURN_END', '', name, '', t));
+      session.on('submit_retry', t => run.bridge.event('SUBMIT_RETRY', '', '', name, t));
+      session.on('exit', e => run.bridge.event(session.userStopped ? 'ROLE_STOPPED' : 'ROLE_EXITED', '', name, '', e));
+      session.on('reset', () => broadcast({ type: 'reset', role: name }));
+      run.sessions[name] = session;
+      session.start();
+      run.bridge.event('ROLE_STARTED', '', name, '', { pid: session.pid, file: session.file, args: session.args, cwd: session.cwd, hotAdd: true });
+    }
+    const meta = {
+      name, type, adapter: type === 'observer' ? null : String(body.adapter || ''),
+      account: body.account || '', delivery, briefing: briefingOn,
+    };
+    run.roles.push(meta);
+    const snap = statusPayload();
+    if (typeof accountWarning === 'string' && accountWarning) snap.accountWarning = accountWarning;
+    broadcast({ type: 'status', status: snap });
+    // Also send a fresh PTY snapshot to any already-connected UI.
+    if (session) broadcast({ type: 'snapshot', role: name, data: session.ring || '' });
+    return snap;
+  }
   function accountsPayload() { return { root: accountsDir, supported: accounts.capabilities(), accounts: accounts.list(accountsDir), logins: Object.values(logins).map(l => ({ id: l.name, cli: l.cli, account: l.account, state: l.state })) }; }
   // Login terminal: the CLI (or its documented login subcommand) with the account's env.
   async function startLogin({ cli, name }) {
@@ -149,7 +218,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
     if (!a || !a.path) throw new Error(`ADAPTER_NOT_FOUND:${cli}`);
     const id = `LOGIN_${cli}_${name}`.toUpperCase().replace(/[^A-Z0-9_]/g, '_');
     if (logins[id] && logins[id].alive) return { id };
-    const s = new RoleSession({ name: id, adapter: compile(a), file: a.path, args: accounts.loginArgs(cli), cwd: os.homedir(), cols: 100, rows: 28, env: accounts.envFor(accountsDir, cli, name) });
+    const s = new RoleSession({ name: id, adapter: compile(a), file: a.path, args: [...accounts.argOverrides(cli, name), ...accounts.loginArgs(cli)], cwd: os.homedir(), cols: 100, rows: 28, env: accounts.envFor(accountsDir, cli, name) });
     s.cli = cli; s.account = name;
     s.on('output', d => broadcast({ type: 'output', role: id, data: d }));
     s.on('exit', () => broadcast({ type: 'login', id, state: 'exited', account: accounts.status(accountsDir, cli, name) }));
@@ -192,6 +261,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
     'GET /api/status': () => statusPayload(),
     'POST /api/restart-role': b => { const s = roleSession(b.role); if (s.restarting) throw new Error(`ROLE_RESTARTING:${s.name}`); restartRole(s.name).catch(e => log('restart failed', e.message)); return { ok: true, role: s.name }; },
     'POST /api/stop-role': b => stopRole(b.role),
+    'POST /api/add-role': b => addRole(b),
     'GET /api/accounts': () => accountsPayload(),
     'POST /api/accounts': b => { accounts.create(accountsDir, String(b.cli || ''), String(b.name || '').trim().toLowerCase()); return accountsPayload(); },
     'POST /api/open-account-folder': b => { const st = accounts.status(accountsDir, String(b.cli || ''), String(b.name || '')); if (!st.exists) throw new Error(`ACCOUNT_MISSING:${b.cli}-${b.name}`); openFolder(st.dir); return { ok: true, dir: st.dir }; },
@@ -250,7 +320,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
   });
 
   return {
-    server, start, stop, restartRole, stopRole, status: statusPayload, get run() { return run; },
+    server, start, stop, restartRole, stopRole, addRole, status: statusPayload, get run() { return run; },
     listen: () => new Promise(r => server.listen(port, host, () => { const a = server.address(); listenPort = a.port; log(`cli-conductor on http://${host}:${a.port}`); r(a.port); })),
     close: async () => { await stop(); await Promise.all(Object.values(logins).map(s => s.stop(1000))); for (const ws of sockets) ws.terminate(); await new Promise(r => server.close(r)); },
   };

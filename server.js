@@ -114,7 +114,8 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
     if (!run) return { running: false };
     const r = run; run = null;
     r.bridge.stop();
-    await Promise.all(Object.values(r.sessions).map(s => s.stop()));
+    // One at a time: concurrent ConPTY exits can crash node-pty 1.1.0 (0xC0000005, microsoft/node-pty#922).
+    for (const s of Object.values(r.sessions)) await s.stop();
     r.bridge.event('STOPPED', '', '', '', {});
     broadcast({ type: 'status', status: { running: false } });
     return { running: false };
@@ -322,7 +323,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
   return {
     server, start, stop, restartRole, stopRole, addRole, status: statusPayload, get run() { return run; },
     listen: () => new Promise(r => server.listen(port, host, () => { const a = server.address(); listenPort = a.port; log(`cli-conductor on http://${host}:${a.port}`); r(a.port); })),
-    close: async () => { await stop(); await Promise.all(Object.values(logins).map(s => s.stop(1000))); for (const ws of sockets) ws.terminate(); await new Promise(r => server.close(r)); },
+    close: async () => { await stop(); for (const s of Object.values(logins)) await s.stop(1000); for (const ws of sockets) ws.terminate(); await new Promise(r => server.close(r)); },
   };
 }
 

@@ -25,10 +25,12 @@ jobs:
         run: node --test test/ui.test.js
       - name: accounts
         run: node --test test/accounts.test.js
+      # PTY-heavy steps use TAP: on a native crash it records exitCode (e.g. 3221225477 = 0xC0000005),
+      # which the spec reporter hides behind a bare 'test failed'.
       - name: restart
-        run: node --test test/restart.test.js
+        run: node --test --test-reporter=tap test/restart.test.js
       - name: send-script
-        run: node --test test/send-script.test.js
+        run: node --test --test-reporter=tap test/send-script.test.js
       - name: integration
-        run: node --test test/integration.test.js
+        run: node --test --test-reporter=tap test/integration.test.js
         timeout-minutes: 5

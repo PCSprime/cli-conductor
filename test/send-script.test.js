@@ -18,10 +18,6 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 // node:test only reports 'test failed' for the file, and these lines show how far it got.
 const step = s => process.stderr.write(`[send-script] ${s}\n`);
 process.on('exit', c => { if (c) process.stderr.write(`[send-script] process exit code ${c}\n`); });
-// Progress goes to stderr right away: if the process dies (e.g. a native crash in node-pty/ConPTY),
-// node:test only reports 'test failed' for the file, and these lines show how far it got.
-const step = s => process.stderr.write(`[send-script] ${s}\n`);
-process.on('exit', c => { if (c) process.stderr.write(`[send-script] process exit code ${c}\n`); });
 async function until(fn, ms = 15000) { const t0 = Date.now(); while (Date.now() - t0 < ms) { const v = await fn(); if (v) return v; await wait(200); } throw new Error('timeout'); }
 // stdin stays open (like an agent's shell): a parameter prompt would hang, so a time limit catches it.
 function send(args, env = {}, limitMs = 25000) {
@@ -49,14 +45,12 @@ test('send script: server path, MessagePath, string booleans, errors, file fallb
   assert.equal(JSON.parse(fs.readFileSync(cfg, 'utf8')).server.url, `http://127.0.0.1:${port}`);
 
   step('1 server path');
-  step('1 server path');
   // 1) the reported command line: no -RefPath, "-ReplyRequired $false" as text → queued via the server, fast
   let r = await send(['-ConfigPath', cfg, '-From', 'CODER', '-To', 'REVIEWER', '-Message', 'done, no reply', '-ReplyRequired', '$false']);
   assert.equal(r.code, 0, r.out); assert.match(r.out, /^QUEUED \S+-CODER-TO-REVIEWER-\S+ CODER->REVIEWER reply_required=false$/); assert.ok(r.ms < 20000);
   const id1 = r.out.split(' ')[1];
   await until(async () => (await call('GET', '/api/status')).events.some(e => e.kind === 'QUEUED' && e.message_id === id1));
 
-  step('2 MessagePath');
   step('2 MessagePath');
   // 2) -MessagePath (UTF-8, multi-line, quotes) and the -ReplyRequired:0 / -NoReply forms
   const mp = path.join(ws, 'msg.md'); fs.writeFileSync(mp, '第一行 "quoted" $(not run)\nsecond line\n');
@@ -68,7 +62,6 @@ test('send script: server path, MessagePath, string booleans, errors, file fallb
   assert.match(r.out, /reply_required=false$/);
 
   step('3 errors');
-  step('3 errors');
   // 3) errors are one line, exit 1, no prompt
   r = await send(['-ConfigPath', cfg, '-From', 'CODER', '-To', 'REVIEWER']);
   assert.equal(r.code, 1); assert.match(r.out, /^ERROR ARGS: need -Message/);
@@ -78,14 +71,12 @@ test('send script: server path, MessagePath, string booleans, errors, file fallb
   assert.equal(r.code, 1); assert.match(r.out, /^ERROR ARGS: -ReplyRequired/);
 
   step('3b port');
-  step('3b port');
   // 3b) -Port alone (no config file) works; no server and no config → clear error
   r = await send(['-Port', String(port), '-From', 'CODER', '-To', 'REVIEWER', '-Message', 'via port', '-NoReply']);
   assert.equal(r.code, 0, r.out); assert.match(r.out, /^QUEUED /);
   r = await send(['-Port', '9', '-From', 'CODER', '-To', 'REVIEWER', '-Message', 'x', '-TimeoutSec', '2']);
   assert.equal(r.code, 1); assert.match(r.out, /^ERROR NO_SERVER: no server at http:\/\/127\.0\.0\.1:9/);
 
-  step('4 file fallback');
   step('4 file fallback');
   // 4) no server reachable → bounded file-queue fallback with a clear note
   const dead = JSON.parse(fs.readFileSync(cfg, 'utf8')); dead.server.url = 'http://127.0.0.1:9'; const cfg2 = path.join(ws, '.tmp', 'cli_conductor', 'dead.config.json');

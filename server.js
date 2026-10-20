@@ -9,8 +9,8 @@ const { WebSocketServer } = require('ws');
 const { BUILTIN, compile } = require('./lib/adapters');
 const { scan, splitArgs } = require('./lib/scanner');
 const { RoleSession } = require('./lib/session');
-const { Bridge, ROLE_RE } = require('./lib/bridge');
-const { fillBriefing } = require('./lib/briefing');
+const { Bridge, ROLE_RE, TAG } = require('./lib/bridge');
+const briefing = require('./lib/briefing');
 const uistate = require('./lib/uistate');
 const folderpicker = require('./lib/folderpicker');
 const cliflags = require('./lib/cliflags');
@@ -18,9 +18,11 @@ const accounts = require('./lib/accounts');
 
 const ROOT = __dirname;
 const REPO = ROOT;
+const STATE_SUBDIR = path.join('.tmp', 'cli_conductor'), SEND_SCRIPT = path.join(REPO, 'tools', 'cli_conductor_send.ps1');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 const VENDOR = {
   '/vendor/xterm.js': '@xterm/xterm/lib/xterm.js', '/vendor/xterm.css': '@xterm/xterm/css/xterm.css', '/vendor/addon-fit.js': '@xterm/addon-fit/lib/addon-fit.js',
+  '/briefing.js': './lib/briefing.js', // shared with the UI (preview of the opening briefing)
 };
 
 // Opens a folder in the OS file manager (Explorer on Windows). Fire and forget.
@@ -50,7 +52,29 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
 
   function statusPayload() {
     if (!run) return { running: false };
-    return { running: true, startedAt: run.startedAt, roles: run.roles.map(r => ({ ...r, ...(run.sessions[r.name] ? run.sessions[r.name].info() : { state: 'archive' }) })), bridge: run.bridge.status(), events: run.bridge.recent.slice(-60) };
+    return { running: true, startedAt: run.startedAt, roles: run.roles.map(r => ({ ...r, ...(run.sessions[r.name] ? run.sessions[r.name].info() : { state: 'archive' }), briefingState: run.bridge.briefingState(r.name) })), bridge: run.bridge.status(), events: run.bridge.recent.slice(-60) };
+  }
+
+  // ---------- opening briefing (global dispatch briefing + duty + extra notes) ----------
+  // rn: { workspace, roles: [{name,type}], brief: { global, lang, send, file, cfg: { NAME: { duty, briefOn, extra } } } }
+  const briefRoleCfg = r => ({ duty: String(r.duty || '').trim(), briefOn: r.briefOn !== false, extra: String(r.briefing || '') });
+  function briefUpdate(rn, b) {
+    if (typeof b.globalBriefing === 'string') rn.brief.global = b.globalBriefing;
+    if (b.lang === 'zh' || b.lang === 'en') rn.brief.lang = b.lang;
+  }
+  const briefCtx = rn => ({ global: rn.brief.global, lang: rn.brief.lang, workspace: rn.workspace, send: rn.brief.send, briefingFile: rn.brief.file, roles: rn.roles.map(r => ({ name: r.name, type: r.type, duty: (rn.brief.cfg[r.name] || {}).duty || '' })) });
+  // { text } = send on first idle; { skip: 'resume'|'off' } = none; {} = nothing configured.
+  function briefingPlan(rn, name, resumes) {
+    const c = rn.brief.cfg[name] || briefRoleCfg({});
+    if (!c.briefOn) return { skip: 'off' };
+    const text = briefing.composeBriefing(briefCtx(rn), { name, duty: c.duty, extra: c.extra });
+    if (!text) return {};
+    return resumes ? { skip: 'resume' } : { text };
+  }
+  function writeBriefingFile(rn, bridge) {
+    if (!String(rn.brief.global || '').trim()) return;
+    try { fs.mkdirSync(path.dirname(rn.brief.file), { recursive: true }); fs.writeFileSync(rn.brief.file, briefing.briefingFileText(briefCtx(rn), new Date().toISOString())); }
+    catch (e) { bridge.event('BRIEFING_FILE_FAILED', '', '', '', { path: rn.brief.file, reason: e.message }); }
   }
 
   async function start(body) {
@@ -80,21 +104,26 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
       const env = a.custom ? {} : accounts.supported(a.id) ? accounts.envFor(accountsDir, a.id, r.account) : {};
       const args = [...(a.custom || !accounts.supported(a.id) ? [] : accounts.argOverrides(a.id, r.account)), ...cliflags.buildArgs(a.custom ? '' : a.id, r.options, r.args, a.args || [])];
       const s = new RoleSession({ name: r.name, adapter: a, file: a.path, args, cwd: path.resolve(workspace, r.cwd || '.'), idleMs: body.idleMs || 3000, cols: 110, rows: 30, env });
-      s.resumes = !!(r.options && r.options.resume && r.options.resume !== 'off');
+      s.resumes = cliflags.isResume(a.custom ? '' : a.id, args);
       sessions[r.name] = s;
       bridgeRoles[r.name] = { delivery: r.delivery === 'after_turn' ? 'after_turn' : 'immediate', send_policy: 'immediate', session: s };
     }
-    const stateDir = path.join(workspace, '.tmp', 'cli_conductor');
+    const stateDir = path.join(workspace, STATE_SUBDIR);
     try { uistate.apply(files.ui, { addRecent: workspace }); } catch { }
-    const configPath = path.join(stateDir, 'app.config.json'), sendScript = path.join(REPO, 'tools', 'cli_conductor_send.ps1');
-    for (const r of roles) if (bridgeRoles[r.name].session && String(r.briefing || '').trim()) {
-      const peers = roles.filter(o => o.name !== r.name).map(o => o.type === 'observer' ? `${o.name} (archive only)` : o.name).join(', ');
-      bridgeRoles[r.name].briefing = fillBriefing(r.briefing, { role: r.name, peers, workspace, send: `pwsh -File "${sendScript}" -ConfigPath "${configPath}"` });
+    const configPath = path.join(stateDir, 'app.config.json'), sendScript = SEND_SCRIPT;
+    // Briefing only for roles that start a NEW conversation; resumed ones already have it.
+    const rn = { workspace, roles, brief: { global: '', lang: 'en', send: `pwsh -File "${sendScript}" -ConfigPath "${configPath}"`, file: path.join(stateDir, 'BRIEFING.md'), cfg: Object.fromEntries(roles.map(r => [r.name, briefRoleCfg(r)])) } };
+    briefUpdate(rn, body);
+    for (const r of roles) if (bridgeRoles[r.name].session) {
+      const plan = briefingPlan(rn, r.name, sessions[r.name].resumes);
+      if (plan.text) bridgeRoles[r.name].briefing = plan.text;
+      if (plan.skip) bridgeRoles[r.name].briefSkip = plan.skip;
     }
     const bridge = new Bridge({ workspace, stateDir, roles: bridgeRoles, sendScript, configPath, serverUrl: `http://127.0.0.1:${listenPort}`, waitTurnEnd: !!body.waitTurnEnd, pollMs: body.pollMs || 1000 });
     bridge.on('event', e => broadcast({ type: 'event', event: e }));
     bridge.on('error', e => log('bridge error', e.message));
     bridge.start();
+    writeBriefingFile(rn, bridge);
     for (const [name, s] of Object.entries(sessions)) {
       s.on('output', d => broadcast({ type: 'output', role: name, data: d }));
       s.on('state', st => { broadcast({ type: 'role', role: s.info() }); if (st.state === 'attention') bridge.event('ATTENTION', '', '', name, { prompt: st.prompt }); });
@@ -105,7 +134,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
       s.start();
       bridge.event('ROLE_STARTED', '', name, '', { pid: s.pid, file: s.file, args: s.args, cwd: s.cwd });
     }
-    run = { bridge, sessions, roles: roles.map(r => ({ name: r.name, type: r.type || 'agent', adapter: r.adapter || null, account: r.account || '', delivery: bridgeRoles[r.name].delivery, briefing: !!bridgeRoles[r.name].briefing })), startedAt: new Date().toISOString(), idleMs: body.idleMs || 3000, workspace };
+    run = { bridge, sessions, roles: roles.map(r => ({ name: r.name, type: r.type || 'agent', adapter: r.adapter || null, account: r.account || '', delivery: bridgeRoles[r.name].delivery, briefing: !!bridgeRoles[r.name].briefing, duty: rn.brief.cfg[r.name].duty })), startedAt: new Date().toISOString(), idleMs: body.idleMs || 3000, workspace, brief: rn.brief };
     broadcast({ type: 'status', status: statusPayload() });
     return statusPayload();
   }
@@ -131,7 +160,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
     const t0 = Date.now();
     while (r.bridge.busyDelivering.has(s.name) && Date.now() - t0 < 20000) await new Promise(x => setTimeout(x, 100));
     await s.restart(graceMs);
-    if (!s.resumes) r.bridge.rebrief(s.name);
+    if (!s.resumes) { const plan = briefingPlan(r, s.name, false); if (plan.text) r.bridge.roles[s.name].briefing = plan.text; r.bridge.rebrief(s.name); }
     r.bridge.event('ROLE_RESTARTED', '', s.name, '', { pid: s.pid, file: s.file, args: s.args, cwd: s.cwd, rebrief: !s.resumes });
     return s.info();
   }
@@ -153,6 +182,8 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
     const workspace = run.workspace || run.bridge.workspace;
     const adapters = Object.fromEntries(scan(allAdapters()).map(a => [a.id, a]));
     let session = null, delivery = 'archive_only', briefingOn = false, accountWarning = '';
+    briefUpdate(run, body);
+    run.brief.cfg[name] = briefRoleCfg(body);
     if (type === 'observer') {
       run.bridge.addRole(name, { delivery: 'archive_only', send_policy: 'after_turn', session: null });
     } else {
@@ -177,22 +208,20 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
         name, adapter: a, file: a0.path,
         args, cwd, idleMs, cols: 110, rows: 30, env,
       });
-      session.resumes = !!(body.options && body.options.resume && body.options.resume !== 'off');
+      session.resumes = cliflags.isResume(a.custom ? '' : a.id, args);
       delivery = body.delivery === 'after_turn' ? 'after_turn' : 'immediate';
       const entry = { delivery, send_policy: 'immediate', session };
-      if (String(body.briefing || '').trim()) {
-        const peerList = run.roles.map(r => r.type === 'observer' ? `${r.name} (archive only)` : r.name).join(', ');
-        const sendScript = run.bridge.sendScript;
-        const configPath = run.bridge.configPath;
-        entry.briefing = fillBriefing(body.briefing, { role: name, peers: peerList, workspace, send: `pwsh -File "${sendScript}" -ConfigPath "${configPath}"` });
-        briefingOn = true;
-      }
+      const plan = briefingPlan(run, name, session.resumes);
+      if (plan.text) { entry.briefing = plan.text; briefingOn = true; }
+      if (plan.skip) entry.briefSkip = plan.skip;
       run.bridge.addRole(name, entry);
+      // Session events can fire after stop() cleared run (exit during shutdown): keep this run's bridge.
+      const hotBridge = run.bridge;
       session.on('output', d => broadcast({ type: 'output', role: name, data: d }));
-      session.on('state', st => { broadcast({ type: 'role', role: session.info() }); if (st.state === 'attention') run.bridge.event('ATTENTION', '', '', name, { prompt: st.prompt }); });
-      session.on('turn_end', t => run.bridge.event('TURN_END', '', name, '', t));
-      session.on('submit_retry', t => run.bridge.event('SUBMIT_RETRY', '', '', name, t));
-      session.on('exit', e => run.bridge.event(session.userStopped ? 'ROLE_STOPPED' : 'ROLE_EXITED', '', name, '', e));
+      session.on('state', st => { broadcast({ type: 'role', role: session.info() }); if (st.state === 'attention') hotBridge.event('ATTENTION', '', '', name, { prompt: st.prompt }); });
+      session.on('turn_end', t => hotBridge.event('TURN_END', '', name, '', t));
+      session.on('submit_retry', t => hotBridge.event('SUBMIT_RETRY', '', '', name, t));
+      session.on('exit', e => hotBridge.event(session.userStopped ? 'ROLE_STOPPED' : 'ROLE_EXITED', '', name, '', e));
       session.on('reset', () => broadcast({ type: 'reset', role: name }));
       run.sessions[name] = session;
       session.start();
@@ -200,15 +229,33 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
     }
     const meta = {
       name, type, adapter: type === 'observer' ? null : String(body.adapter || ''),
-      account: body.account || '', delivery, briefing: briefingOn,
+      account: body.account || '', delivery, briefing: briefingOn, duty: run.brief.cfg[name].duty,
     };
     run.roles.push(meta);
+    if (String(run.brief.global || '').trim()) writeBriefingFile(run, run.bridge); // file only; running roles are not messaged
     const snap = statusPayload();
     if (typeof accountWarning === 'string' && accountWarning) snap.accountWarning = accountWarning;
     broadcast({ type: 'status', status: snap });
     // Also send a fresh PTY snapshot to any already-connected UI.
     if (session) broadcast({ type: 'snapshot', role: name, data: session.ring || '' });
     return snap;
+  }
+  // 重发说明: send the current briefing once more to one running role (ignores the switch; user asked).
+  function rebriefRole(b = {}) {
+    if (!run) throw new Error('NOT_RUNNING');
+    const name = String(b.role || '').trim().toUpperCase();
+    const s = run.sessions[name]; if (!s) throw new Error(`ROLE_UNKNOWN:${name}`);
+    if (s.userStopped || s.state === 'offline') throw new Error(`ROLE_NOT_RUNNING:${name}`);
+    briefUpdate(run, b);
+    if (['duty', 'briefing', 'briefOn'].some(k => k in b)) run.brief.cfg[name] = briefRoleCfg({ ...run.brief.cfg[name], ...b, briefing: 'briefing' in b ? b.briefing : (run.brief.cfg[name] || {}).extra });
+    const c = run.brief.cfg[name] || briefRoleCfg({});
+    const text = briefing.composeBriefing(briefCtx(run), { name, duty: c.duty, extra: c.extra });
+    if (!text) throw new Error(`BRIEFING_EMPTY:${name}`);
+    const meta = run.roles.find(r => r.name === name); if (meta) meta.duty = c.duty;
+    writeBriefingFile(run, run.bridge);
+    run.bridge.forceBrief(name, text);
+    broadcast({ type: 'status', status: statusPayload() });
+    return { ok: true, role: name, chars: text.length };
   }
   function accountsPayload() { return { root: accountsDir, supported: accounts.capabilities(), accounts: accounts.list(accountsDir), logins: Object.values(logins).map(l => ({ id: l.name, cli: l.cli, account: l.account, state: l.state })) }; }
   // Login terminal: the CLI (or its documented login subcommand) with the account's env.
@@ -257,18 +304,19 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
     'POST /api/preview-args': b => {
       const a = allAdapters().find(x => x.id === b.adapter) || {};
       const args = cliflags.buildArgs(a.custom ? '' : a.id, b.options, b.args, a.args || []);
-      return { command: (a.commands || [b.adapter || ''])[0], args };
+      return { command: (a.commands || [b.adapter || ''])[0], args, resumes: cliflags.isResume(a.custom ? '' : a.id, args) };
     },
     'GET /api/status': () => statusPayload(),
     'POST /api/restart-role': b => { const s = roleSession(b.role); if (s.restarting) throw new Error(`ROLE_RESTARTING:${s.name}`); restartRole(s.name).catch(e => log('restart failed', e.message)); return { ok: true, role: s.name }; },
     'POST /api/stop-role': b => stopRole(b.role),
     'POST /api/add-role': b => addRole(b),
+    'POST /api/rebrief': b => rebriefRole(b),
     'GET /api/accounts': () => accountsPayload(),
     'POST /api/accounts': b => { accounts.create(accountsDir, String(b.cli || ''), String(b.name || '').trim().toLowerCase()); return accountsPayload(); },
     'POST /api/open-account-folder': b => { const st = accounts.status(accountsDir, String(b.cli || ''), String(b.name || '')); if (!st.exists) throw new Error(`ACCOUNT_MISSING:${b.cli}-${b.name}`); openFolder(st.dir); return { ok: true, dir: st.dir }; },
     'POST /api/account-login': b => startLogin({ cli: String(b.cli || ''), name: String(b.name || '') }),
     'POST /api/account-login-stop': async b => { const s = logins[b.id]; if (s) { await s.stop(2000); delete logins[b.id]; } return accountsPayload(); },
-    'GET /api/defaults': () => ({ workspace: process.cwd(), home: os.homedir(), platform: process.platform }),
+    'GET /api/defaults': () => ({ workspace: process.cwd(), home: os.homedir(), platform: process.platform, briefing: { stateDir: STATE_SUBDIR, sendScript: SEND_SCRIPT, tag: TAG } }),
     'POST /api/start': b => start(b),
     'POST /api/stop': () => stop(),
     'POST /api/send': b => { if (!run) throw new Error('NOT_RUNNING'); return run.bridge.enqueue(b); },

@@ -326,3 +326,75 @@ body.dock-sorting .dock{overflow:visible}
 .dc-body,.dc-actions{display:contents}
 @media (max-height:760px){.dc{height:70px;padding:5px 8px 5px 9px!important}.dc .sub{display:none}}
 @media (min-width:2400px){.dc{height:84px}}
+/* global dispatch briefing (全局调度说明) */
+.gbrow{cursor:pointer}.gbk{display:flex;align-items:center;flex:none;gap:2px}
+.gb-badge{font-size:11px;color:var(--green);margin-right:6px;white-space:nowrap}.gb-badge.empty{color:var(--sub)}
+.sheet.gb-sheet{width:min(940px,94vw);max-height:calc(100vh - 80px);overflow:auto}
+.gb-sheet h2 .gb-acts{display:flex;gap:14px;align-items:center}
+.gb-cols{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:14px}
+@media (max-width:760px){.gb-cols{grid-template-columns:1fr}}
+.gb-chips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:8px 12px}
+.gb-chips .lbl{font-size:11px;color:var(--sub);margin-right:2px}
+.gb-chips .chip{font-family:ui-monospace,Menlo,Consolas,monospace}.gb-chips .chip.new{background:rgba(52,199,89,.16)}
+textarea.gb-ta{min-height:360px;font-size:12px;font-family:inherit}
+.gb-prev{background:var(--term);border-radius:12px;padding:10px 12px;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-all;min-height:360px;max-height:calc(100vh - 220px);overflow:auto;box-shadow:inset 0 0 0 .5px var(--sep)}
+.gb-prev mark{background:rgba(0,122,255,.12);color:var(--blue);border-radius:4px;padding:0 2px}
+.gb-prev mark.duty{background:rgba(52,199,89,.16);color:#1f8a3b}
+.gb-note{display:flex;gap:8px;align-items:flex-start;font-size:11.5px;color:var(--sub);padding:8px 12px;line-height:1.5}.gb-note b{color:var(--text);font-weight:500}
+.gb-sheet .label .seg{flex:none}
+textarea.duty-in{min-height:52px;font-size:12.5px;resize:none}
+.rc-hint{font-size:11px;color:var(--sub);padding:0 12px 8px;line-height:1.5}
+.bstate{font-size:12px;color:var(--sub)}.bstate.send,.bstate.sent{color:var(--green)}.bstate.pending{color:var(--orange,#ff9500)}
+.seg .native,.opttext .native{color:var(--sub);font-weight:400}
+/* Highest thinking-effort tier: soft aurora + faint meteor shower (top-right -> bottom-left), clipped to the button, behind the label.
+   Meteor travel (--dx/--dy) is precomputed px, not cos()/sin(): Chrome's compositor mis-places trig-based transform keyframes. */
+.seg button.effort-top{position:relative;overflow:hidden;isolation:isolate;--fx-ink:#2e2a78;--fx-star:83,74,206;
+  background:linear-gradient(120deg,rgba(99,102,241,.10),rgba(45,180,170,.08) 50%,rgba(232,112,160,.09))}
+.seg button.effort-top .fx-lbl{position:relative;z-index:2;color:#3f3d8f}
+.seg button.effort-top .fx-aur,.seg button.effort-top .fx-met{position:absolute;inset:0;pointer-events:none;border-radius:inherit;overflow:hidden}
+.seg button.effort-top .fx-aur{z-index:0;opacity:0;transition:opacity .4s}
+.seg button.effort-top .fx-aur i{position:absolute;border-radius:50%;filter:blur(5px)}
+.fx-a1{width:70%;height:170%;left:-18%;top:-45%;background:radial-gradient(closest-side,rgba(104,100,238,.58),transparent);animation:fxAurA 7s ease-in-out infinite alternate}
+.fx-a2{width:64%;height:160%;right:-16%;top:-50%;background:radial-gradient(closest-side,rgba(52,186,172,.46),transparent);animation:fxAurB 8s ease-in-out infinite alternate}
+.fx-a3{width:62%;height:150%;left:22%;top:20%;background:radial-gradient(closest-side,rgba(232,112,160,.44),transparent);animation:fxAurC 9s ease-in-out infinite alternate}
+@keyframes fxAurA{0%{transform:translate(0,0) scale(1)}50%{transform:translate(34%,12%) scale(1.12)}100%{transform:translate(58%,-6%) scale(.96)}}
+@keyframes fxAurB{0%{transform:translate(0,0) scale(1.04)}50%{transform:translate(-38%,14%) scale(.92)}100%{transform:translate(-56%,4%) scale(1.08)}}
+@keyframes fxAurC{0%{transform:translate(0,0) scale(.95)}50%{transform:translate(-30%,-18%) scale(1.1)}100%{transform:translate(28%,-10%) scale(1)}}
+.seg button.effort-top .fx-met{z-index:1}
+.seg button.effort-top .fx-met i{position:absolute;left:0;top:0;width:var(--len);height:1.2px;opacity:0;transform-origin:0 50%;will-change:transform,opacity;backface-visibility:hidden;
+  transform:translate3d(var(--x0),var(--y0),0) rotate(calc(-1 * var(--a)))}
+.seg button.effort-top .fx-met i::after{content:"";position:absolute;inset:0;clip-path:polygon(0 0,100% 40%,100% 60%,0 100%);
+  background:linear-gradient(90deg,rgba(var(--fx-star),.9),rgba(var(--fx-star),.5) 18%,rgba(var(--fx-star),.16) 55%,rgba(var(--fx-star),0))}
+.seg button.effort-top .fx-met i::before{content:"";position:absolute;left:-1.3px;top:50%;width:2.6px;height:2.6px;margin-top:-1.3px;border-radius:50%;
+  background:radial-gradient(circle,rgba(var(--fx-star),.95) 0 28%,rgba(var(--fx-star),.28) 52%,transparent 70%)}
+.fx-m1{--x0:40px;--y0:-3px;--a:35deg;--dx:-59px;--dy:41.3px;--len:22px;--o:.56;--t:3s;--dl:-2.12s}
+.fx-m2{--x0:54px;--y0:-5px;--a:33deg;--dx:-68.8px;--dy:44.7px;--len:17px;--o:.42;--t:3.8s;--dl:-1.5s}
+.fx-m3{--x0:26px;--y0:-2px;--a:37deg;--dx:-47.9px;--dy:36.1px;--len:14px;--o:.36;--t:2.6s;--dl:-2.19s}
+.fx-m4{--x0:60px;--y0:-6px;--a:34deg;--dx:-73px;--dy:49.2px;--len:24px;--o:.5;--t:4.6s;--dl:-.69s}
+.fx-m5{--x0:48px;--y0:-4px;--a:36deg;--dx:-61.5px;--dy:44.7px;--len:16px;--o:.4;--t:3.4s;--dl:-1.93s}
+@keyframes fxFall{0%{transform:translate3d(var(--x0),var(--y0),0) rotate(calc(-1 * var(--a)));opacity:0}9%{opacity:var(--o)}50%{opacity:calc(var(--o) * .9)}66%{opacity:0}
+  70%,100%{transform:translate3d(calc(var(--x0) + var(--dx)),calc(var(--y0) + var(--dy)),0) rotate(calc(-1 * var(--a)));opacity:0}}
+@keyframes fxFallRare{0%{transform:translate3d(var(--x0),var(--y0),0) rotate(calc(-1 * var(--a)));opacity:0}4%{opacity:var(--o)}22%{opacity:calc(var(--o) * .9)}29%{opacity:0}
+  31%,100%{transform:translate3d(calc(var(--x0) + var(--dx)),calc(var(--y0) + var(--dy)),0) rotate(calc(-1 * var(--a)));opacity:0}}
+/* unselected: faint static tint + one very faint, rare meteor */
+.seg button.effort-top:not(.on) .fx-met i:not(.fx-m1){display:none}
+.seg button.effort-top:not(.on) .fx-m1{--o:.22;--t:8s;--dl:-1s;animation:fxFallRare var(--t) linear var(--dl) infinite}
+/* selected: full aurora + shower */
+.seg button.effort-top.on{background:var(--segon);font-weight:600;box-shadow:0 0 0 .5px rgba(99,102,241,.3),0 1px 1px rgba(0,0,0,.04),0 3px 12px rgba(99,102,241,.17)}
+.seg button.effort-top.on .fx-lbl{color:var(--fx-ink)}
+.seg button.effort-top.on .fx-aur{opacity:1}
+.seg button.effort-top.on .fx-met i{animation:fxFall var(--t) linear var(--dl) infinite}
+@media (prefers-color-scheme:dark){
+  .seg button.effort-top{--fx-ink:#eeedff;--fx-star:236,236,255;background:linear-gradient(120deg,rgba(129,132,255,.17),rgba(60,200,185,.12) 50%,rgba(240,130,175,.13))}
+  .seg button.effort-top .fx-lbl{color:#cfccff}
+  .seg button.effort-top.on{background:#2b2b33;box-shadow:0 0 0 .5px rgba(140,140,255,.36),0 3px 14px rgba(110,110,255,.22)}
+  .fx-a1{background:radial-gradient(closest-side,rgba(120,116,255,.55),transparent)}
+  .fx-a2{background:radial-gradient(closest-side,rgba(60,200,186,.42),transparent)}
+  .fx-a3{background:radial-gradient(closest-side,rgba(240,124,172,.42),transparent)}
+}
+@media (prefers-reduced-motion:reduce){
+  .seg button.effort-top .fx-aur i,.seg button.effort-top .fx-met i{animation:none!important;
+    transform:translate3d(calc(var(--x0) + var(--dx) * .3),calc(var(--y0) + var(--dy) * .3),0) rotate(calc(-1 * var(--a)))}
+  .seg button.effort-top.on .fx-m1,.seg button.effort-top.on .fx-m4{opacity:calc(var(--o) * .8)}
+  .seg button.effort-top:not(.on) .fx-m1{opacity:.16}
+}

@@ -7,7 +7,8 @@ const path = require('path');
 const { detectFirstRun, compile, BUILTIN } = require('../lib/adapters');
 const { splitArgs, resolveSpawn } = require('../lib/scanner');
 const { Bridge, sha256File } = require('../lib/bridge');
-const { fillBriefing } = require('../lib/briefing');
+const { fillBriefing, composeBriefing, peerList, briefingFileText } = require('../lib/briefing');
+const { isResume } = require('../lib/cliflags');
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'tbapp-unit-'));
 const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -170,7 +171,77 @@ test('briefing: placeholders are filled', () => {
   assert.equal(fillBriefing('', {}), '');
 });
 
-const { buildArgs, capabilities, SPECS } = require('../lib/cliflags');
+test('briefing: global text with {duty} {briefingFile}, peers with duty, extra notes appended', () => {
+  const ctx = { global: 'I am {role}.\nDuty: {duty}\nPeers: {peers}\nFile: {briefingFile}', lang: 'en', workspace: 'C:\\w', send: 'pwsh s', briefingFile: 'C:\\w\\.tmp\\cli_conductor\\BRIEFING.md',
+    roles: [{ name: 'CODER', duty: 'writes code' }, { name: 'REVIEWER', duty: 'reviews' }, { name: 'DESIGNER' }, { name: 'OBS', type: 'observer' }] };
+  assert.equal(composeBriefing(ctx, { name: 'CODER', duty: 'writes code', extra: 'Also {role}.' }),
+    'I am CODER.\nDuty: writes code\nPeers: REVIEWER (reviews); DESIGNER; OBS (archive only)\nFile: C:\\w\\.tmp\\cli_conductor\\BRIEFING.md\n\nAlso CODER.');
+  assert.match(composeBriefing(ctx, { name: 'DESIGNER' }), /Duty: not specified/);
+  assert.match(composeBriefing({ ...ctx, lang: 'zh' }, { name: 'DESIGNER' }), /Duty: 未指定\nPeers: CODER（writes code）；REVIEWER（reviews）；OBS（仅存档）/);
+  // no {duty} in the global text: the duty line is added after the first line
+  assert.equal(composeBriefing({ ...ctx, global: 'Hi {role}\nbye' }, { name: 'CODER', duty: 'writes code' }), 'Hi CODER\nYour duty: writes code\nbye');
+  assert.equal(composeBriefing({ ...ctx, global: '   ' }, { name: 'CODER' }), '', 'nothing configured = nothing sent');
+  assert.equal(composeBriefing({ ...ctx, global: '' }, { name: 'CODER', extra: 'only {role}' }), 'only CODER', 'old per-role briefing still works alone');
+  assert.equal(peerList([{ name: 'A' }, { name: 'B' }, { name: 'C', type: 'observer' }], 'A', 'en'), 'B, C (archive only)', 'no duties: old comma list');
+  const md = briefingFileText(ctx, 'T');
+  assert.match(md, /- CODER: writes code\n- REVIEWER: reviews\n- DESIGNER: not specified\n- OBS \(archive only\): not specified/);
+  assert.match(md, /I am <YOUR_ROLE>\./);
+});
+
+test('cliflags: isResume from structured options and raw args', () => {
+  assert.equal(isResume('codex', buildArgs('codex', { resume: 'last' })), true);
+  assert.equal(isResume('codex', ['-c', 'windows.sandbox=unelevated']), false, 'codex -c is config, not continue');
+  assert.equal(isResume('qodercn', buildArgs('qodercn', {}, '--resume 6f1c')), true, 'raw --resume <id>');
+  assert.equal(isResume('qodercn', buildArgs('qodercn', { resume: 'last' })), true);
+  assert.equal(isResume('claude', ['-c']), true);
+  assert.equal(isResume('amp', buildArgs('amp', { resume: 'id', resumeId: 'T-1' })), true);
+  assert.equal(isResume('copilot', ['--resume=abc']), true);
+  assert.equal(isResume('gemini', ['-m', 'pro']), false);
+  assert.equal(isResume('', ['--continue']), true, 'custom CLI: long flags only');
+});
+
+test('briefing: resumed role gets none, messages are not held, skip is recorded', async () => {
+  const B = stubSession('B_ROLE');
+  const { A, bridge } = mkBridge({ B_ROLE: { delivery: 'immediate', session: B, briefSkip: 'resume' }, C_ROLE: { delivery: 'immediate', session: stubSession('C_ROLE'), briefSkip: 'off' } });
+  const sk = bridge.recent.filter(e => e.kind === 'BRIEFING_SKIPPED');
+  assert.deepEqual(sk.map(e => [e.to, e.detail.reason]), [['B_ROLE', 'resume'], ['C_ROLE', 'off']]);
+  assert.equal(bridge.briefingState('B_ROLE'), 'resume'); assert.equal(bridge.briefingState('C_ROLE'), 'off');
+  bridge.enqueue({ from: 'A_ROLE', to: 'B_ROLE', message: 'task 1' });
+  await bridge.poll();
+  assert.equal(B.writes.length, 1); assert.match(B.writes[0], /task 1/);
+  assert.ok(!kinds(bridge).includes('BRIEFED')); assert.equal(A.writes.length, 0);
+  bridge.stop();
+});
+
+test('briefing: manual resend once, even for a resumed role; state pending -> sent', async () => {
+  const B = stubSession('B_ROLE'); B.state = 'busy';
+  const { bridge } = mkBridge({ B_ROLE: { delivery: 'immediate', session: B, briefSkip: 'resume' } });
+  bridge.forceBrief('B_ROLE', 'Briefing v2');
+  assert.equal(bridge.briefingState('B_ROLE'), 'pending');
+  await bridge.poll(); assert.equal(B.writes.length, 0, 'waits for idle');
+  B.state = 'idle'; await bridge.poll();
+  assert.deepEqual(B.writes, ['Briefing v2']);
+  assert.equal(bridge.recent.filter(e => e.kind === 'BRIEFED').at(-1).detail.manual, true);
+  assert.equal(bridge.briefingState('B_ROLE'), 'sent');
+  B.state = 'idle'; await bridge.poll(); assert.equal(B.writes.length, 1, 'once');
+  assert.throws(() => bridge.forceBrief('OBS', 'x'), /ROLE_UNKNOWN/);
+  assert.throws(() => bridge.forceBrief('B_ROLE', '  '), /BRIEFING_EMPTY/);
+  bridge.stop();
+});
+
+test('hot-add: running roles receive nothing; only the new role gets its briefing', async () => {
+  const { A, B, bridge } = mkBridge();
+  assert.equal(bridge.notify, undefined, 'no notice API'); assert.equal(require('../lib/briefing').joinNotice, undefined);
+  const N = stubSession('NEW_ROLE');
+  bridge.addRole('NEW_ROLE', { delivery: 'immediate', session: N, briefing: 'brief N' });
+  for (let i = 0; i < 3; i++) { A.state = B.state = N.state = 'idle'; await bridge.poll(); }
+  assert.deepEqual(A.writes, []); assert.deepEqual(B.writes, []);
+  assert.deepEqual(N.writes, ['brief N']);
+  assert.ok(!kinds(bridge).some(k => /^NOTICE_/.test(k)));
+  bridge.stop();
+});
+
+const { buildArgs, capabilities, SPECS, sanitizeOptions, nativeHint } = require('../lib/cliflags');
 test('cliflags: codex resume subcommand goes first, raw args last', () => {
   assert.deepEqual(buildArgs('codex', { resume: 'last', model: 'gpt-5.5', perm: 'edit' }, '--search'), ['resume', '--last', '-m', 'gpt-5.5', '--sandbox', 'workspace-write', '--search']);
   assert.deepEqual(buildArgs('codex', { resume: 'id', resumeId: 'abc' }, '', ['--x']), ['resume', 'abc', '--x']);
@@ -256,4 +327,39 @@ test('session: no busy regex -> output after submit confirms; quiet screen does 
   assert.equal((await a.s.write('x')).confirmed, true); a.stop();
   const b = withRole(t, { busyRe: [], goesBusy: false });
   assert.equal((await b.s.write('x')).confirmed, false); b.stop();
+});
+
+test('cliflags: permission options per CLI carry native hints; unsupported ones are hidden', () => {
+  const perm = id => capabilities(id).perm, nat = id => capabilities(id).permNative;
+  assert.deepEqual(nat('codex'), { readonly: 'read-only', edit: 'workspace-write', auto: '--approve-for-me' });
+  assert.deepEqual(nat('qodercn'), { readonly: 'plan', edit: 'accept_edits', auto: 'auto' });
+  assert.equal(capabilities('qodercn').skipAllNative, '--yolo');
+  assert.deepEqual(nat('claude'), { readonly: 'plan', edit: 'acceptEdits', auto: 'auto' });
+  assert.deepEqual(nat('gemini'), { readonly: 'plan', edit: 'auto_edit', auto: 'yolo' });
+  assert.equal(capabilities('gemini').skipAllNative, 'yolo', 'gemini Full auto and Skip all are both yolo; hints show it');
+  assert.deepEqual(perm('copilot'), ['readonly', 'auto'], 'copilot: no Auto-edit');
+  assert.deepEqual(nat('copilot'), { readonly: 'plan', auto: 'autopilot' });
+  assert.deepEqual(perm('cursor'), ['readonly']);
+  assert.equal(nat('cline').auto, '--auto-approve');
+  assert.equal(capabilities('cline').skipAll, false);
+  assert.equal(capabilities('cline').skipAllNative, '');
+  assert.equal(capabilities('aider').perm, null);
+  assert.equal(capabilities('aider').permNative, null);
+  for (const id of Object.keys(SPECS)) {
+    const c = capabilities(id);
+    for (const k of c.perm || []) assert.ok(c.permNative[k], `${id}.${k} has a hint`);
+    assert.equal(!!c.skipAllNative, c.skipAll, `${id}: skip-all hint iff skip-all exists`);
+  }
+  assert.equal(nativeHint(['--mode=plan']), 'plan');
+  assert.equal(nativeHint(['--force']), '--force');
+});
+test('cliflags: saved options a CLI does not offer fall back to Default without crashing', () => {
+  assert.deepEqual(sanitizeOptions('copilot', { perm: 'edit', effort: 'high' }), { perm: '', effort: 'high' });
+  assert.deepEqual(buildArgs('copilot', { perm: 'edit' }), []);
+  assert.deepEqual(sanitizeOptions('aider', { perm: 'auto', skipAll: true }), { perm: '', skipAll: true });
+  assert.deepEqual(sanitizeOptions('droid', { skipAll: true, effort: 'ultra' }), { skipAll: false, effort: '' });
+  assert.deepEqual(buildArgs('cline', { perm: 'auto', skipAll: true }), ['--act', '--auto-approve', 'true']);
+  for (const bad of ['toString', '__proto__', 'constructor', 'bogus']) assert.deepEqual(buildArgs('codex', { perm: bad }), [], bad);
+  assert.deepEqual(buildArgs('qodercn', { perm: 'auto' }), ['--permission-mode', 'auto']);
+  assert.deepEqual(sanitizeOptions('nope', null), {});
 });

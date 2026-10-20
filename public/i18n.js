@@ -3,7 +3,7 @@
 const ZH = {
   'CLI Conductor': 'CLI 调度台', 'Not running': '未运行', 'Stop': '停止', 'New Message': '新消息',
   'Workspace': '工作区', 'Folder': '文件夹',
-  'Message refs must be inside this folder. State is kept in .tmp/terminal_bridge.': '消息引用的文件必须位于此文件夹内。状态保存在 .tmp/terminal_bridge。',
+  'Message refs must be inside this folder. State is kept in .tmp/cli_conductor.': '消息引用的文件必须位于此文件夹内。状态保存在 .tmp/cli_conductor。',
   'Roles': '角色', 'Add Role': '新建角色', 'Options': '选项',
   'Wait for turn end before delivering': '投递前等待回合结束', 'Idle time for turn end': '回合结束空闲时间',
   'The strict first-run prompt check is always on. A role showing a trust or login prompt is held until you answer it in its card.': '严格的首次运行提示检测始终开启。出现信任或登录提示的角色会被暂停投递，直到你在其终端卡片中作答。',
@@ -32,7 +32,7 @@ const ZH = {
   'The message was pasted but the CLI did not start (Enter seems ignored). Click this terminal and press Enter to submit it. Deliveries are held.': '消息已粘贴，但 CLI 没有开始处理（回车似乎被忽略）。请点击此终端并按回车提交。投递已暂停。', 'Cannot reach the server. Is npm start running?': '无法连接服务，请确认 npm start 正在运行。', 'The server is an older version. Restart npm start.': '服务版本较旧，请重启 npm start。',
   'Launch options': '启动选项', 'Model': '模型', 'Which model this CLI uses. Leave on default to use its own setting.': '这个 CLI 使用哪个模型。保持“默认”则沿用它自己的设置。',
   'Default': '默认', 'Custom…': '自定义…', 'model name': '模型名称', 'Thinking effort': '思考强度', 'How hard the model thinks before answering. Higher is slower but more careful.': '模型回答前思考的深度。越高越慢，但更仔细。',
-  'low': '低', 'medium': '中', 'high': '高', 'xhigh': '很高', 'max': '最高', 'none': '无', 'off': '关', 'on': '开',
+  'low': '低', 'medium': '中', 'high': '高', 'xhigh': '很高', 'max': '最高', 'none': '无', 'off': '关', 'on': '开', 'minimal': '极低', 'ultra': '超高',
   'Continue conversation': '继续对话', 'Pick up an earlier session instead of starting fresh. An empty ID sends nothing, so no picker opens.': '接着之前的会话，而不是重新开始。ID 留空则不发送，不会弹出选择器。',
   'Most recent': '最近一次', 'By ID': '填 ID', 'session ID': '会话 ID', 'session index (e.g. 3)': '会话序号（如 3）',
   'Permission level': '权限级别', 'What the CLI may do without asking you.': 'CLI 不经询问可以做哪些事。', 'Read-only': '只读', 'Auto-edit files': '自动改文件', 'Full auto': '全自动',
@@ -50,7 +50,25 @@ const ZH = {
   'Press Start Conductor to launch this CLI here.': '点击“启动调度”后，此 CLI 会在这里运行。', 'Enable at least two roles in the sidebar.': '请在左侧至少启用两个角色。',
   'outbox': '待投递', 'uncertain': '不确定', 'archived': '已归档', 'held': '暂缓', 'paused': '已暂停', 'resumed': '已恢复', 'Opening briefing': '开场说明', 'Insert default template': '插入默认模板', 'briefed': '已发送开场说明', 'briefing failed': '开场说明发送失败',
   'Optional. Empty = nothing is sent. Placeholders: {role} {peers} {workspace} {send}': '可选。留空则不发送。占位符：{role} {peers} {workspace} {send}',
-  'Replace the current briefing with the default template?': '用默认模板替换当前开场说明？', 'waiting_for_briefing': '等待开场说明', 'archived': '已归档', 'attention': '需处理', 'fresh start': '全新启动', 'role exited': '角色退出', 'role started': '角色启动', 'stopped': '已停止', 'turn end': '回合结束', 'busy': '忙碌',
+  'Replace the current briefing with the default template?': '用默认模板替换当前开场说明？', 'Global dispatch briefing': '全局调度说明', 'Edit ›': '编辑 ›',
+  'Sent once to each role that starts a new conversation, before its first message. Applies to all roles.': '新对话的角色第一次空闲时先收到这段说明，再收消息。对所有角色生效。',
+  '● On': '● 已启用', '● On · customized': '● 已启用 · 已自定义', '○ Empty': '○ 未填写', 'Restore default': '恢复默认', 'Save': '保存', 'Preview': '预览',
+  'Placeholders (click to insert):': '占位符（点击插入）：', 'Replace the text with the default template?': '用默认模板替换当前内容？', 'Global dispatch briefing saved': '全局调度说明已保存',
+  'Applies to all roles. At start it is also written to {file}, so roles can reread it.': '对所有角色生效；启动时也会写到 {file}，角色可随时重读。',
+  "What a role receives = this text + the duty from its role card (filled in at {duty}). Only roles that start a new conversation get it; roles continuing a conversation, or with the switch off, do not.": '每个角色实际收到的 = 这段说明 + 它卡片里的「本角色职责」（填到 {duty} 的位置）。只有开新对话的角色会收到；续接对话或关掉开关的角色不发。',
+  'Changes apply to roles that start or join later. For a running role use Resend briefing.': '修改对之后启动或加入的角色生效；已在运行的角色用「重发说明」。',
+  "Blue = filled placeholder, green = this role's duty (from its role card).": '蓝色 = 占位符替换结果，绿色 = 本角色职责（来自角色卡片）。', 'Add a role to preview.': '先添加角色才能预览。',
+  'Edit global dispatch briefing ›': '编辑全局调度说明 ›', 'Send opening briefing': '发送开场说明',
+  'Only when this role starts a new conversation: sent once when it is first idle, before any message.': '只在开新对话时发：第一次空闲时先发说明，再转发消息。',
+  "This role's duty": '本角色职责', 'e.g. writes the code and tests it, then hands it to REVIEWER': '例如：负责写代码并自测，完成后交给 REVIEWER 审查',
+  "Opening briefing = global dispatch briefing + this role's duty. The duty also shows in the other roles' role list.": '开场说明 = 全局调度说明 + 本角色职责。职责也会出现在其他角色的「其他角色」列表里。',
+  'At this start': '本次启动', 'Extra notes (optional)': '额外说明（可选）', 'Only for this role, appended after the global briefing. Same placeholders.': '只发给本角色，附在全局说明后面。占位符同全局说明。',
+  'Preview the full text this role receives': '预览本角色收到的全文', 'Preview ›': '预览 ›',
+  'Will be sent at this start': '本次启动会发送', 'Continuing a conversation, not sent': '续接对话，不发送', 'Nothing to send': '无内容，不发送',
+  'Sent': '已发送', 'Waiting to send (when idle)': '等待空闲后发送', 'Continuing a conversation, not sent this run': '续接对话，本次未发送',
+  'Resend briefing': '重发说明', 'Resend the opening briefing to this role now? It is sent once, when the role is idle.': '现在给这个角色重发一次开场说明？会在它空闲时发送一次。', 'briefing queued, sent when idle': '开场说明已排队，空闲时发送',
+  'briefing skipped': '跳过开场说明', 'briefing queued': '开场说明排队', 'briefing file failed': '说明文件写入失败',
+  'continuing a conversation': '续接对话', 'switched off': '开关已关闭', 'manual': '手动', 'waiting_for_briefing': '等待开场说明', 'archived': '已归档', 'attention': '需处理', 'fresh start': '全新启动', 'role exited': '角色退出', 'role started': '角色启动', 'stopped': '已停止', 'turn end': '回合结束', 'busy': '忙碌',
   "Archive": "消息存档",
   "archive · inbox only": "消息存档 · 仅收件箱",
   "archive only": "仅存档",
@@ -151,7 +169,7 @@ const ERR_ZH = {
   ROLE_NAME_INVALID: '角色名无效（请使用大写下划线格式，如 CODER）', ROLE_DUPLICATE: '角色名重复', ADAPTER_UNKNOWN: '未知的 CLI',
   ADAPTER_NOT_FOUND: '在 PATH 中找不到该 CLI，请用完整路径手动添加', CWD_MISSING: '工作文件夹不存在',
   PICKER_UNSUPPORTED: '此系统不支持原生文件夹选择器，请手动输入路径', PICKER_FAILED: '无法打开文件夹选择器', PICKER_BUSY: '文件夹选择器已打开', ADAPTER_INVALID: '需要填写名称和命令', ADAPTER_ID_TAKEN: '该 CLI 名称已被内置项占用', PRESET_NAME_REQUIRED: '需要预设名称',
-  NOT_RUNNING: '桥接未运行', ROLE_UNKNOWN: '未知角色', MESSAGE_FIELD_MISSING: '消息缺少字段', MESSAGE_SCHEMA_INVALID: '消息格式无效',
+  NOT_RUNNING: '桥接未运行', ROLE_UNKNOWN: '未知角色', ROLE_NOT_RUNNING: '角色未在运行', BRIEFING_EMPTY: '开场说明为空（全局调度说明、职责和额外说明都没有内容）', MESSAGE_FIELD_MISSING: '消息缺少字段', MESSAGE_SCHEMA_INVALID: '消息格式无效',
   MESSAGE_ROUTE_INVALID: '发送方/接收方无效（不能相同）', MESSAGE_TEXT_EMPTY: '消息内容为空', MESSAGE_REPLY_REQUIRED_INVALID: 'reply_required 字段无效',
   REF_ESCAPE: '引用文件必须位于工作区内', REF_MISSING: '引用文件不存在', REF_HASH_MISMATCH: '引用文件哈希不匹配', QUEUED: '消息已排队',
   ACCOUNT_DUPLICATE: '多个角色使用同一 CLI 的同一账号', ACCOUNT_UNSUPPORTED: '此 CLI 不支持多账号', ACCOUNT_MISSING: '账号文件夹不存在', ACCOUNT_EXISTS: '账号已存在', ACCOUNT_NAME_INVALID: '账号名无效（仅限 a-z、0-9、- 或 _，最多 32 个字符）', ROLE_RESTARTING: '该角色正在重启', ROLE_OFFLINE: '该角色已离线',
@@ -184,7 +202,35 @@ function setLang(l, rerender) {
   if (rerender) rerender();
 }
 
+// Default global dispatch briefing (全局调度说明), role-neutral; {duty} comes from each role card.
 const BRIEFING_TEMPLATES = {
+  en: `You are {role}, one of several AI agents working together through CLI Conductor in the workspace {workspace}.
+Your duty: {duty}
+Other roles: {peers}
+
+How it works:
+- Messages from other roles arrive in this terminal as a block starting with [CLIConductor <id> FROM->TO]. Each one tells you whether a reply is required and the exact command to reply with.
+- To send a message or reply, run: {send} -From {role} -To <ROLE> -Message "<text>" (for long text write a UTF-8 file and use -MessagePath <file>; add -NoReply when no answer is needed). It prints QUEUED <id> or ERROR. The bridge delivers it automatically; do not edit outbox files by hand.
+- The other role cannot see your terminal. Keep every message self-contained: the goal, what you did, results, and the file paths (inside the workspace) they need.
+- Only message a role when you need something from it or are reporting a result. Stay within your duty.
+
+This briefing is saved in {briefingFile}. Reread that file whenever your context was compacted or you forget the rules.
+Reply "ready" in this terminal (no bridge message needed) and wait for the first task.`,
+  zh: `你是 {role}，是在工作区 {workspace} 中通过 CLI 调度台协作的几个 AI 代理之一。
+你的职责：{duty}
+其他角色：{peers}
+
+协作方式：
+- 其他角色发来的消息会以 [CLIConductor <id> 发送方->接收方] 开头出现在本终端，并注明是否需要回复以及回复所用的命令。
+- 发送消息或回复：{send} -From {role} -To <角色名> -Message "<内容>"（长文本写入 UTF-8 文件后用 -MessagePath <文件>；不需要回复时加 -NoReply）。命令输出 QUEUED <id> 或 ERROR，桥接会自动投递，不要手动编辑 outbox 文件。
+- 对方看不到你的终端。每条消息都要完整自足：目标、做了什么、结果，以及对方需要的文件路径（必须在工作区内）。
+- 只在需要对方协助或汇报结果时才发消息，专注于你的职责。
+
+本说明保存在 {briefingFile}。上下文被压缩、或忘了协作规则时，随时重读这个文件。
+请在本终端回复“就绪”（无需通过桥接发消息），然后等待第一个任务。`,
+};
+// Old per-role default (before the global dispatch briefing); an exact copy in a role is dropped on load.
+const LEGACY_BRIEFING_TEMPLATES = {
   en: `You are {role}, one of several AI agents working together through CLI Conductor in the workspace {workspace}.
 Your duty: <describe what {role} is responsible for>.
 Other roles: {peers}.

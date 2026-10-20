@@ -41,6 +41,7 @@
 
     <div class="label">Options</div>
     <div class="group">
+      <div class="row opt gbrow" id="gbRow"><div class="opttext"><div>Global dispatch briefing</div><div class="hint">Sent once to each role that starts a new conversation, before its first message. Applies to all roles.</div></div><div class="gbk"><span class="gb-badge" id="gbBadge"></span><button class="link" id="btnGb" type="button">Edit ›</button></div></div>
       <div class="row opt"><div class="opttext"><div>Wait for the CLI to finish before delivering</div><div class="hint">The bridge waits until the target CLI finishes its current turn, instead of interrupting it right away.</div></div><button class="switch sm" id="optWait"></button></div>
       <div class="row opt"><div class="opttext"><div>Quiet time that counts as finished</div><div class="hint">How long the screen must stay unchanged before a turn counts as finished. Shorter is faster, longer is safer.</div></div><div class="seg" id="optIdle"></div></div>
     </div>
@@ -93,7 +94,8 @@
   <div class="lstate" id="loginState"></div>
   <div class="foot">Finish the login in the terminal above (a browser window may open). Close this when the status shows logged in.</div>
 </div></div>
+<div class="sheet-bg" id="gbSheet"><div class="sheet gb-sheet" id="gbIn" role="dialog" aria-modal="true"></div></div>
 <div class="ctx" id="ctx" role="menu"></div>
 <div class="toast" id="toast"></div>
-<script src="/vendor/xterm.js"></script><script src="/vendor/addon-fit.js"></script><script src="/i18n.js"></script><script src="/stage.js"></script><script src="/app.js"></script>
+<script src="/vendor/xterm.js"></script><script src="/vendor/addon-fit.js"></script><script src="/briefing.js"></script><script src="/i18n.js"></script><script src="/stage.js"></script><script src="/app.js"></script>
 </body></html>

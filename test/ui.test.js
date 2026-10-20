@@ -56,3 +56,23 @@ test('api: /api/pick-folder uses injected picker, records recent; /api/ui-state'
     assert.equal(calls, 2);
   } finally { await app.close(); }
 });
+
+test('api: briefing helpers (/briefing.js, preview-args resumes, rebrief needs a run)', async () => {
+  const app = createApp({ port: 0, dataDir: tmp(), log: () => {} });
+  const port = await app.listen();
+  const call = async (method, url, body) => { const r = await fetch(`http://127.0.0.1:${port}${url}`, { method, headers: { 'content-type': 'application/json', 'x-cli-conductor': '1' }, body: body ? JSON.stringify(body) : undefined }); return [r.status, await r.json()]; };
+  try {
+    const js = await fetch(`http://127.0.0.1:${port}/briefing.js`);
+    assert.equal(js.status, 200); assert.match(await js.text(), /composeBriefing/);
+    let [st, j] = await call('POST', '/api/preview-args', { adapter: 'qodercn', options: {}, args: '--resume abc' });
+    assert.equal(st, 200); assert.equal(j.resumes, true);
+    [st, j] = await call('POST', '/api/preview-args', { adapter: 'codex', options: { resume: 'off' }, args: '' });
+    assert.equal(j.resumes, false);
+    [st, j] = await call('GET', '/api/defaults');
+    assert.ok(j.briefing && j.briefing.sendScript && j.briefing.stateDir);
+    [st, j] = await call('POST', '/api/rebrief', { role: 'CODER' });
+    assert.equal(st, 400); assert.match(j.error, /NOT_RUNNING/);
+    [st, j] = await call('GET', '/api/status');
+    assert.deepEqual(j, { running: false });
+  } finally { await app.close(); }
+});

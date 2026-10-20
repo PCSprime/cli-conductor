@@ -221,7 +221,7 @@ function renderDock() {
       more.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); if (r.type === 'observer') return; openOverflow(r.name, more); });
       card.addEventListener('click', e => {
         if (e.target.closest('.dc-more') || card.classList.contains('dragging') || card.dataset.suppressClick === '1') return;
-        const i2 = status.roles.findIndex(x => x.name === r.name);
+        const i2 = rosterList().findIndex(x => x.name === r.name);
         if (popOpen && selIdx === i2) return closePop();
         if (r.type === 'observer') { selIdx = i2; renderRoles(); return openPop(card); }
         swapIn(r.name); if (popOpen) openPop(card);
@@ -279,6 +279,7 @@ function openOverflow(name, anchor) {
   if (localStorage.tbTipOverflow === '1') tip.classList.add('hidden');
   m.append(tip, el('div', { class: 'ch' }, name),
     item(`<span class="ci-ico">↻</span>${t('Restart')}`, () => restartRole(name)),
+    item(`<span class="ci-ico">✉</span>${t('Resend briefing')}`, () => rebriefRole(name)),
     item(`<span class="ci-ico stop">${GLYPH_STOP}</span>${t('Stop')}`, () => stopRole(name), 'red'));
   const ar = anchor.getBoundingClientRect(), w = m.offsetWidth || 180, h = m.offsetHeight || 120;
   let left = ar.right - 8, top = ar.bottom + 6;
@@ -289,6 +290,13 @@ function openOverflow(name, anchor) {
 async function restartRole(name) {
   const r = roleByName(name); if (!r || r.state === 'restarting') return;
   try { await api('POST', '/api/restart-role', { role: name }); toast(`${name}: ${t('restarting…')}`); refreshSoon(); } catch (e) { toast(e.message); }
+}
+// 重发说明: the current global briefing + this role's duty/extra, sent once when it is idle.
+async function rebriefRole(name) {
+  if (!confirm(`${name}: ${t('Resend the opening briefing to this role now? It is sent once, when the role is idle.')}`)) return;
+  const cfg = (typeof roles !== 'undefined' ? roles : []).find(r => r.name === name);
+  const body = { role: name, globalBriefing: gbText(), lang: LANG, ...(cfg ? { duty: cfg.duty || '', briefing: cfg.briefing || '' } : {}) };
+  try { await api('POST', '/api/rebrief', body); toast(`${name}: ${t('briefing queued, sent when idle')}`); refreshSoon(); } catch (e) { toast(e.message); }
 }
 async function startRole(name) {
   const live = (status.roles || []).find(r => r.name === name);
@@ -304,6 +312,7 @@ async function startRole(name) {
     const body = {
       name: cfg.name, type: cfg.type || 'agent', adapter: cfg.adapter, delivery: cfg.delivery,
       cwd: cfg.cwd || '', args: cfg.args || '', briefing: cfg.briefing || '', account: cfg.account || '',
+      duty: cfg.duty || '', briefOn: cfg.briefOn !== false, globalBriefing: gbText(), lang: LANG,
       options: cfg.options || undefined,
       allowDuplicateAccounts: true, // sharing Codex/default etc. is allowed on hot-start
     };

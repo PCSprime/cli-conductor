@@ -62,9 +62,9 @@ function renderFoot() {
 
 // ---------- roles (sidebar list + popover editor) ----------
 let roles = [
-  { enabled: true, name: 'CODER', type: 'agent', adapter: 'qodercn', delivery: 'immediate', cwd: '', args: '', briefing: '' },
-  { enabled: true, name: 'REVIEWER', type: 'agent', adapter: 'codex', delivery: 'immediate', cwd: '', args: '', briefing: '' },
-  { enabled: false, name: 'ARCHIVE', type: 'observer', adapter: '', delivery: 'archive_only', cwd: '', args: '', briefing: '' },
+  { enabled: true, name: 'CODER', type: 'agent', adapter: 'qodercn', delivery: 'immediate', cwd: '', args: '', briefing: '', briefOn: true, duty: '' },
+  { enabled: true, name: 'REVIEWER', type: 'agent', adapter: 'codex', delivery: 'immediate', cwd: '', args: '', briefing: '', briefOn: true, duty: '' },
+  { enabled: false, name: 'ARCHIVE', type: 'observer', adapter: '', delivery: 'archive_only', cwd: '', args: '', briefing: '', briefOn: true, duty: '' },
 ];
 function roleSub(r) { return r.type === 'observer' ? t('archive · inbox only') : `${adapterLabel(r.adapter)} · ${r.delivery === 'after_turn' ? t('after turn') : t('immediate')}`; }
 // Full left-list roster: always config roles (tbLast), overlaid with live status when running.
@@ -212,10 +212,11 @@ function renderPop() {
     const cfgI = roles.findIndex(x => x.name === r.name);
     if (cfgI >= 0 && (!sess || (sess.stopped && r.type !== 'observer'))) { renderRoleEditor(roles[cfgI], cfgI, box, true); requestAnimationFrame(positionPop); return; }
     const rows = [[t('Type'), r.type === 'observer' ? t('Archive') : t('Agent')]];
-    if (r.type !== 'observer') rows.push([t('CLI'), r.label || r.adapter], [t('Delivery'), r.delivery === 'after_turn' ? t('After turn') : t('Immediate')], [t('Status'), stateText(r.state)], ['PID', r.pid || '—'], [t('Account'), acct.supported[r.adapter] ? (r.account || t('Default')) : '—'], [t('Working folder'), r.cwd || '—'], [t('Opening briefing'), r.briefing ? t('On') : t('Off')], [t('Final command'), [r.file || '', ...(r.args || [])].join(' ')]);
+    if (r.type !== 'observer') rows.push([t('CLI'), r.label || r.adapter], [t('Delivery'), r.delivery === 'after_turn' ? t('After turn') : t('Immediate')], [t('Status'), stateText(r.state)], ['PID', r.pid || '—'], [t('Account'), acct.supported[r.adapter] ? (r.account || t('Default')) : '—'], [t('Working folder'), r.cwd || '—'], [t('Opening briefing'), runBriefText(r)], [t("This role's duty"), ((roles.find(x => x.name === r.name) || {}).duty || r.duty || '—')], [t('Final command'), [r.file || '', ...(r.args || [])].join(' ')]);
     box.append(el('div', { class: 'label' }, el('span', {}, `${r.name} · ${t('Role settings')}`)), el('div', { class: 'group' }, rows.map(([a, b]) => el('div', { class: 'row' }, el('span', {}, a), el('span', { class: 'v', title: String(b) }, b)))),
       el('div', { class: 'foot' }, t('Settings are read-only while the bridge runs.')),
-      el('div', { style: 'margin-top:12px;display:flex;justify-content:space-between' }, el('button', { class: 'link red', onclick: async () => { if (!confirm(`${t('Stop and remove this role?')} ${r.name}`)) return; if (r.type !== 'observer' && !r.stopped) await stopRole(r.name, { ask: false }); removeRoleByName(r.name); } }, t('Stop & remove')), el('button', { class: 'btn sm', onclick: closePop }, t('Done'))));
+      el('div', { style: 'margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:12px' }, el('button', { class: 'link red', onclick: async () => { if (!confirm(`${t('Stop and remove this role?')} ${r.name}`)) return; if (r.type !== 'observer' && !r.stopped) await stopRole(r.name, { ask: false }); removeRoleByName(r.name); } }, t('Stop & remove')),
+        el('span', { style: 'flex:1' }), r.type !== 'observer' && !r.stopped ? el('button', { class: 'link', type: 'button', onclick: () => rebriefRole(r.name) }, t('Resend briefing')) : '', el('button', { class: 'btn sm', onclick: closePop }, t('Done'))));
     requestAnimationFrame(positionPop); return;
   }
   const r = roles[selIdx]; if (!r) return closePop();
@@ -237,21 +238,108 @@ function renderRoleEditor(r, i, box, running) {
   else {
     const cli = el('select', { class: 'field-sel', onchange: e => { r.adapter = e.target.value; renderRoles(); renderPlaceholders(); renderPop(); } });
     for (const a of adapters.filter(a => a.path || a.id === r.adapter)) cli.append(el('option', { value: a.id, ...(a.id === r.adapter ? { selected: '' } : {}) }, `${a.label}${a.path ? '' : ' ' + t('(not found)')}`));
-    const ta = el('textarea', { class: 'briefing', placeholder: t('Optional. Empty = nothing is sent. Placeholders: {role} {peers} {workspace} {send}'), oninput: e => r.briefing = e.target.value }); ta.value = r.briefing || '';
+    // Opening briefing = global dispatch briefing + duty + extra notes; sent only for a new conversation.
+    let resumes = null; // from /api/preview-args (final argv); null until the first preview
+    const bstate = el('span', { class: 'bstate' });
+    const drawState = () => { const k = cardBriefState(r, resumes); bstate.className = 'bstate ' + k; bstate.textContent = t(BSTATE_TEXT[k]); };
+    const bsw = el('button', { class: 'switch sm' + (r.briefOn !== false ? ' on' : ''), type: 'button', onclick: () => { r.briefOn = r.briefOn === false; sw(bsw, r.briefOn); saveRoster(); drawState(); } });
+    const duty = el('textarea', { class: 'duty-in', rows: '2', placeholder: t('e.g. writes the code and tests it, then hands it to REVIEWER'), oninput: e => { r.duty = e.target.value; saveRoster(); drawState(); } }); duty.value = r.duty || '';
+    const ta = el('textarea', { class: 'briefing', placeholder: t('Only for this role, appended after the global briefing. Same placeholders.'), oninput: e => { r.briefing = e.target.value; saveRoster(); drawState(); } }); ta.value = r.briefing || '';
+    drawState();
     box.append(el('div', { class: 'label' }, t('CLI & launch')),
       el('div', { class: 'group' },
         el('div', { class: 'row' }, el('span', {}, t('CLI')), cli),
         accountRow(r, renderPop),
         el('div', { class: 'row' }, el('span', {}, t('Delivery')), seg([['immediate', t('Immediate')], ['after_turn', t('After turn')]], r.delivery, v => { r.delivery = v; renderRoles(); renderPlaceholders(); })),
         el('div', { class: 'row stack' }, el('span', {}, t('Working folder')), folderField({ value: r.cwd, placeholder: t('workspace'), onchange: v => r.cwd = v }))),
-      ...launchOptions(r),
-      el('div', { class: 'label' }, el('span', {}, t('Opening briefing')), el('button', { class: 'link', type: 'button', onclick: () => { if (ta.value.trim() && !confirm(t('Replace the current briefing with the default template?'))) return; ta.value = r.briefing = briefingTemplate(); } }, t('Insert default template'))),
-      el('div', { class: 'group' }, el('div', { class: 'row stack' }, ta)));
+      ...launchOptions(r, p => { resumes = !!p.resumes; drawState(); }),
+      el('div', { class: 'label' }, el('span', {}, t('Opening briefing')), el('button', { class: 'link', type: 'button', onclick: () => openGb(r.name) }, t('Edit global dispatch briefing ›'))),
+      el('div', { class: 'group' },
+        el('div', { class: 'row' }, el('div', { class: 'opttext' }, el('div', {}, t('Send opening briefing')), el('div', { class: 'hint' }, t('Only when this role starts a new conversation: sent once when it is first idle, before any message.'))), bsw),
+        el('div', { class: 'row stack' }, el('span', {}, t("This role's duty")), duty),
+        el('div', { class: 'rc-hint' }, t("Opening briefing = global dispatch briefing + this role's duty. The duty also shows in the other roles' role list.")),
+        el('div', { class: 'row' }, el('span', {}, t('At this start')), bstate),
+        el('details', { class: 'more', style: 'margin:0', ...(r.briefing ? { open: '' } : {}) }, el('summary', { class: 'row' }, el('span', {}, t('Extra notes (optional)')), el('span', { class: 'chev' }, '›')), el('div', {}, el('div', { class: 'row stack' }, ta))),
+        el('div', { class: 'row' }, el('span', {}, t('Preview the full text this role receives')), el('button', { class: 'link', type: 'button', onclick: () => openGb(r.name) }, t('Preview ›')))));
   }
   box.append(roleEditorFoot(r, i, running));
 }
 // While running: stopped sessions the user removed from the roster stay hidden.
 const hiddenRoles = new Set();
+
+// ---------- global dispatch briefing (全局调度说明) ----------
+let gbCustom = null; // null = the default template (follows the UI language)
+const bdef = { stateDir: '.tmp/cli_conductor', sendScript: 'tools/cli_conductor_send.ps1', tag: 'CLIConductor' }; // from /api/defaults
+const gbText = () => gbCustom === null ? briefingTemplate() : gbCustom;
+const BSTATE_TEXT = { send: 'Will be sent at this start', resume: 'Continuing a conversation, not sent', off: 'Off', empty: 'Nothing to send', old: 'The server is an older version. Restart npm start.' };
+const RUN_BSTATE_TEXT = { sent: 'Sent', pending: 'Waiting to send (when idle)', resume: 'Continuing a conversation, not sent this run', off: 'Off' };
+const runBriefText = r => t(RUN_BSTATE_TEXT[r.briefingState] || (r.briefing ? 'On' : 'Off'));
+// /briefing.js comes from the server; an older server (not restarted yet) does not serve it.
+const OLD_SERVER = 'The server is an older version. Restart npm start.';
+const hasBriefing = () => typeof Briefing === 'object' && !!Briefing && typeof Briefing.composeBriefing === 'function';
+const escHtml = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+// Old configs: switch defaults on, no duty; a role holding an untouched copy of the old per-role template drops it
+// (the global briefing now carries that text).
+function migrateBriefing(list) {
+  const legacy = Object.values(typeof LEGACY_BRIEFING_TEMPLATES === 'object' ? LEGACY_BRIEFING_TEMPLATES : {}).map(x => x.trim());
+  for (const r of list || []) { if (r.briefOn === undefined) r.briefOn = true; if (r.duty === undefined) r.duty = ''; if (r.briefing && legacy.includes(String(r.briefing).trim())) r.briefing = ''; }
+  return list;
+}
+function briefPaths() {
+  const ws = (status.running && status.bridge && status.bridge.workspace) || wsValue.trim() || '<workspace>';
+  const sep = ws.includes('/') && !ws.includes('\\') ? '/' : '\\';
+  const sd = ws.replace(/[\\/]+$/, '') + sep + bdef.stateDir.replace(/[\\/]+/g, sep);
+  return { workspace: ws, send: `pwsh -File "${bdef.sendScript}" -ConfigPath "${sd}${sep}app.config.json"`, briefingFile: `${sd}${sep}BRIEFING.md` };
+}
+function briefRoles() {
+  const src = status.running ? (status.roles || []).filter(r => !r.stopped) : roles.filter(r => r.enabled);
+  return src.map(r => ({ name: r.name, type: r.type, duty: (roles.find(x => x.name === r.name) || r).duty || '' }));
+}
+const briefCtxUI = global => ({ global: global === undefined ? gbText() : global, lang: LANG, ...briefPaths(), roles: briefRoles() });
+function cardBriefState(r, resumes) {
+  if (r.briefOn === false) return 'off';
+  if (!hasBriefing()) return 'old';
+  if (!Briefing.composeBriefing(briefCtxUI(), { name: r.name, duty: r.duty, extra: r.briefing })) return 'empty';
+  if (resumes === null) resumes = !!(r.options && (r.options.resume === 'last' || (r.options.resume === 'id' && String(r.options.resumeId || '').trim())));
+  return resumes ? 'resume' : 'send';
+}
+function previewHtml(name, global) {
+  if (!hasBriefing()) return escHtml(t(OLD_SERVER));
+  const cfg = roles.find(x => x.name === name) || {};
+  const raw = Briefing.composeBriefing(briefCtxUI(global), { name, duty: cfg.duty, extra: cfg.briefing }, (k, v) => `\u0001${k}\u0002${v}\u0003`);
+  return escHtml(raw).replace(/\u0001(\w+)\u0002([^\u0003]*)\u0003/g, (m, k, v) => `<mark class="${k === 'duty' ? 'duty' : ''}">${v}</mark>`);
+}
+function renderGbRow() {
+  const b = $('gbBadge'); if (!b) return;
+  const on = !!gbText().trim();
+  b.textContent = t(on ? (gbCustom === null ? '● On' : '● On · customized') : '○ Empty'); b.classList.toggle('empty', !on);
+}
+function openGb(pick) {
+  const sh = $('gbSheet'), box = $('gbIn'); box.innerHTML = '';
+  const ta = el('textarea', { class: 'gb-ta', spellcheck: 'false' }); ta.value = gbText();
+  const agents = briefRoles().filter(r => r.type !== 'observer' && r.name);
+  if (pick && !agents.some(r => r.name === pick)) { const c = roles.find(x => x.name === pick); if (c) agents.push({ name: c.name, type: c.type, duty: c.duty || '' }); }
+  let cur = pick && agents.some(r => r.name === pick) ? pick : (agents[0] || {}).name;
+  const prev = el('div', { class: 'gb-prev' });
+  const draw = () => { prev.innerHTML = cur ? previewHtml(cur, ta.value) : escHtml(t('Add a role to preview.')); };
+  ta.addEventListener('input', () => { clearTimeout(draw.t); draw.t = setTimeout(draw, 120); });
+  const insert = k => { ta.focus(); ta.setRangeText(`{${k}}`, ta.selectionStart, ta.selectionEnd, 'end'); draw(); };
+  const chips = el('div', { class: 'gb-chips' }, el('span', { class: 'lbl' }, t('Placeholders (click to insert):')),
+    (hasBriefing() ? Briefing.KEYS : ['role', 'duty', 'peers', 'workspace', 'send', 'briefingFile']).map(k => el('button', { class: 'chip' + (k === 'duty' || k === 'briefingFile' ? ' new' : ''), type: 'button', onclick: () => insert(k) }, `{${k}}`)));
+  const close = () => sh.classList.remove('show');
+  const save = () => { gbCustom = ta.value === briefingTemplate() ? null : ta.value; saveRoster(); renderGbRow(); if (popOpen) renderPop(); close(); toast(t('Global dispatch briefing saved')); };
+  const reset = () => { if (ta.value.trim() && ta.value !== briefingTemplate() && !confirm(t('Replace the text with the default template?'))) return; ta.value = briefingTemplate(); draw(); };
+  const file = briefPaths().briefingFile;
+  box.append(el('h2', {}, el('span', {}, t('Global dispatch briefing')), el('span', { class: 'gb-acts' }, el('button', { class: 'link', type: 'button', onclick: reset }, t('Restore default')), el('button', { class: 'link', type: 'button', onclick: close }, t('Cancel')), el('button', { class: 'btn sm', type: 'button', onclick: save }, t('Save')))),
+    el('div', { class: 'gb-cols' },
+      el('div', {}, el('div', { class: 'group' }, chips, el('div', { class: 'row stack' }, ta)),
+        el('div', { class: 'group', style: 'margin-top:10px' }, el('div', { class: 'gb-note' }, 'ⓘ', el('div', {}, el('b', {}, t('Applies to all roles. At start it is also written to {file}, so roles can reread it.').replace('{file}', file)), el('br'),
+          t('What a role receives = this text + the duty from its role card (filled in at {duty}). Only roles that start a new conversation get it; roles continuing a conversation, or with the switch off, do not.'),
+          status.running ? el('br') : '', status.running ? t('Changes apply to roles that start or join later. For a running role use Resend briefing.') : '')))),
+      el('div', {}, el('div', { class: 'label', style: 'margin-top:0' }, el('span', {}, t('Preview')), agents.length ? seg(agents.map(r => [r.name, r.name]), cur, v => { cur = v; draw(); }) : ''), prev,
+        el('div', { class: 'foot' }, t("Blue = filled placeholder, green = this role's duty (from its role card).")))));
+  draw(); sh.classList.add('show'); setTimeout(() => ta.focus(), 50);
+}
 function saveRoster() { try { localStorage.tbLast = JSON.stringify(launchConfig()); } catch { } }
 function removeRoleByName(name) {
   const k = roles.findIndex(x => x.name === name); if (k >= 0) roles.splice(k, 1);
@@ -280,20 +368,31 @@ function roleEditorFoot(r, i, running) {
 // ---------- per-CLI launch options (lib/cliflags.js capabilities) ----------
 let cliCaps = {};
 const PERM_LABEL = { readonly: 'Read-only', edit: 'Auto-edit files', auto: 'Full auto' };
+// Unified label plus the CLI's own name for it, dimmed: 全自动（auto） / Full auto (auto).
+// Label of the highest effort tier: decorative aurora blobs + 5 meteors behind the text (styled in app.css).
+const effortTopLabel = label => [
+  el('span', { class: 'fx-aur', 'aria-hidden': 'true' }, el('i', { class: 'fx-a1' }), el('i', { class: 'fx-a2' }), el('i', { class: 'fx-a3' })),
+  el('span', { class: 'fx-met', 'aria-hidden': 'true' }, [1, 2, 3, 4, 5].map(n => el('i', { class: 'fx-m' + n }))),
+  el('span', { class: 'fx-lbl' }, label)];
+const withNative = (label, nat) => nat ? el('span', {}, label, el('span', { class: 'native' }, LANG === 'zh' ? `（${nat}）` : ` (${nat})`)) : label;
 function optRow(title, hint, control, stack) {
-  return el('div', { class: 'row orow' + (stack ? ' stack' : '') }, el('div', { class: 'opttext' }, el('div', {}, t(title)), el('div', { class: 'hint' }, t(hint))), control);
+  return el('div', { class: 'row orow' + (stack ? ' stack' : '') }, el('div', { class: 'opttext' }, el('div', {}, typeof title === 'string' ? t(title) : title), el('div', { class: 'hint' }, t(hint))), control);
 }
-function launchOptions(r) {
+function launchOptions(r, onPreview) {
   const caps = cliCaps[r.adapter];
   const o = r.options = Object.assign({ model: '', effort: '', resume: 'off', resumeId: '', perm: '', skipAll: false, addDirs: [] }, r.options || {});
   const out = [];
   const preview = el('div', { class: 'cmdprev mono-in' }, '…');
   const upd = () => { clearTimeout(upd.t); upd.t = setTimeout(async () => {
-    try { const p = await api('POST', '/api/preview-args', { adapter: r.adapter, options: o, args: r.args }); preview.textContent = [p.command, ...p.args.map(a => /[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)].join(' '); preview.classList.remove('err'); }
+    try { const p = await api('POST', '/api/preview-args', { adapter: r.adapter, options: o, args: r.args }); preview.textContent = [p.command, ...p.args.map(a => /[\s"]/.test(a) ? `"${a.replace(/"/g, '\\"')}"` : a)].join(' '); preview.classList.remove('err'); if (onPreview) onPreview(p); }
     catch (e) { preview.textContent = e.message; preview.classList.add('err'); }
   }, 120); };
   const rows = [];
   if (caps) {
+    // Saved choices this CLI doesn't offer fall back to Default (buildArgs ignores them too).
+    if (o.perm && !(caps.perm || []).includes(o.perm)) o.perm = '';
+    if (o.skipAll && !caps.skipAll) o.skipAll = false;
+    if (o.effort && !(caps.effort ? caps.effort.values : []).includes(o.effort)) o.effort = '';
     if (caps.model) {
       const vals = caps.model.values || [];
       const custom = el('input', { type: 'text', class: 'field mono', style: 'width:100%', placeholder: caps.model.placeholder || t('model name'), value: o.model, oninput: e => { o.model = e.target.value.trim(); upd(); } });
@@ -304,7 +403,13 @@ function launchOptions(r) {
       if (!vals.length) { sel.classList.add('hidden'); custom.classList.remove('hidden'); }
       rows.push(optRow('Model', 'Which model this CLI uses. Leave on default to use its own setting.', el('div', { class: 'ctl' }, sel, custom), true));
     }
-    if (caps.effort) rows.push(optRow('Thinking effort', 'How hard the model thinks before answering. Higher is slower but more careful.', seg([['', t('Default')], ...caps.effort.values.map(v => [v, t(v)])], o.effort, v => { o.effort = v; upd(); }), caps.effort.values.length > 3));
+    if (caps.effort) {
+      // Highest tier (last value) gets the aurora + meteor effect (app.css .effort-top); on/off-style lists don't.
+      const ev = caps.effort.values, top = ev.length > 2 && !['off', 'on', 'none'].includes(ev[ev.length - 1]) ? ev[ev.length - 1] : null;
+      const es = seg([['', t('Default')], ...ev.map(v => [v, v === top ? effortTopLabel(t(v)) : t(v)])], o.effort, v => { o.effort = v; upd(); });
+      if (top) es.lastChild.classList.add('effort-top');
+      rows.push(optRow('Thinking effort', 'How hard the model thinks before answering. Higher is slower but more careful.', es, ev.length > 3));
+    }
     if (caps.resume) {
       const opts = [['off', t('Off')]]; if (caps.resume.last) opts.push(['last', t('Most recent')]); if (caps.resume.id) opts.push(['id', t('By ID')]);
       if (!opts.some(x => x[0] === o.resume)) o.resume = 'off';
@@ -312,10 +417,10 @@ function launchOptions(r) {
       idIn.classList.toggle('hidden', o.resume !== 'id');
       rows.push(optRow('Continue conversation', 'Pick up an earlier session instead of starting fresh. An empty ID sends nothing, so no picker opens.', el('div', { class: 'ctl' }, seg(opts, o.resume, v => { o.resume = v; idIn.classList.toggle('hidden', v !== 'id'); if (v === 'id') idIn.focus(); upd(); }), idIn), true));
     }
-    if (caps.perm) rows.push(optRow('Permission level', 'What the CLI may do without asking you.', seg([['', t('Default')], ...caps.perm.map(k => [k, t(PERM_LABEL[k])])], o.perm, v => { o.perm = v; upd(); }), caps.perm.length > 1));
+    if (caps.perm) rows.push(optRow('Permission level', 'What the CLI may do without asking you.', seg([['', t('Default')], ...caps.perm.map(k => [k, withNative(t(PERM_LABEL[k]), (caps.permNative || {})[k])])], o.perm, v => { o.perm = v; upd(); }), caps.perm.length > 1));
     if (caps.skipAll) {
       const swb = el('button', { class: 'switch sm danger' + (o.skipAll ? ' on' : ''), onclick: () => { if (!o.skipAll && !confirm(t('Skip ALL confirmations? The CLI will run commands and edit files without asking. Use only in an isolated environment.'))) return; o.skipAll = !o.skipAll; sw(swb, o.skipAll); upd(); } });
-      rows.push(optRow('Skip all confirmations', 'Dangerous: never asks before running commands or editing files.', swb));
+      rows.push(optRow(withNative(t('Skip all confirmations'), caps.skipAllNative), 'Dangerous: never asks before running commands or editing files.', swb));
     }
     if (caps.addDir) {
       const list = el('div', { class: 'dirs' });
@@ -362,7 +467,7 @@ function renderAdapters() {
 function addRole(adapterId) {
   const base = adapterId ? adapterId.toUpperCase().replace(/[^A-Z0-9_]/g, '_') : 'AGENT';
   let n = roles.length + 1, name = `${base}_${n}`; while (roles.some(r => r.name === name) || (status.roles || []).some(r => r.name === name)) name = `${base}_${++n}`;
-  roles.push({ enabled: true, name, type: 'agent', adapter: adapterId || (adapters.find(a => a.path) || adapters[0] || {}).id, delivery: 'immediate', cwd: '', args: '', briefing: '', account: '', options: {} });
+  roles.push({ enabled: true, name, type: 'agent', adapter: adapterId || (adapters.find(a => a.path) || adapters[0] || {}).id, delivery: 'immediate', cwd: '', args: '', briefing: '', briefOn: true, duty: '', account: '', options: {} });
   saveRoster();
   const i = status.running ? Math.max(0, rosterList().findIndex(r => r.name === name)) : roles.length - 1;
   selIdx = i;
@@ -377,8 +482,8 @@ function addRole(adapterId) {
 }
 let idleMs = 3000;
 function renderIdle() { seg([[2000, '2 s'], [3000, '3 s'], [5000, '5 s']], idleMs, v => idleMs = Number(v), $('optIdle')); }
-function launchConfig() { return { workspace: wsValue.trim(), roles: JSON.parse(JSON.stringify(roles)), waitTurnEnd: sw($('optWait')), idleMs }; }
-function applyConfig(c) { wsValue = c.workspace || ''; roles = c.roles || roles; selIdx = 0; sw($('optWait'), c.waitTurnEnd); idleMs = Number(c.idleMs || 3000); renderWorkspace(); renderIdle(); renderRoles(); renderPlaceholders(); if (popOpen) renderPop(); localStorage.tbLast = JSON.stringify(c); }
+function launchConfig() { return { workspace: wsValue.trim(), roles: JSON.parse(JSON.stringify(roles)), waitTurnEnd: sw($('optWait')), idleMs, globalBriefing: gbCustom }; }
+function applyConfig(c) { wsValue = c.workspace || ''; roles = migrateBriefing(c.roles || roles); gbCustom = typeof c.globalBriefing === 'string' ? c.globalBriefing : null; renderGbRow(); selIdx = 0; sw($('optWait'), c.waitTurnEnd); idleMs = Number(c.idleMs || 3000); renderWorkspace(); renderIdle(); renderRoles(); renderPlaceholders(); if (popOpen) renderPop(); localStorage.tbLast = JSON.stringify(c); }
 async function loadPresets() { const p = await api('GET', '/api/presets'); const s = $('presetSel'); s.innerHTML = `<option value="">${t('Choose a preset...')}</option>`; for (const k of Object.keys(p)) s.append(el('option', { value: k }, k)); loadPresets.data = p; }
 
 // ---------- center ----------
@@ -448,14 +553,14 @@ function fmtTime(ts) { try { return new Date(ts).toLocaleTimeString([], { hour12
 function eventText(e) {
   const route = e.from && e.to ? `${e.from} → ${e.to}` : (e.from || e.to || '');
   const d = e.detail || {};
-  const extra = (d.reason && t(d.reason)) || d.prompt || (e.kind === 'TURN_END' ? `${t('turn')} ${d.turns}` : '') || (e.kind === 'ROLE_STARTED' ? `pid ${d.pid}` : '');
+  const extra = (e.kind === 'BRIEFING_SKIPPED' ? t(d.reason === 'resume' ? 'continuing a conversation' : 'switched off') : '') || (d.reason && t(d.reason)) || (d.manual ? t('manual') : '') || d.prompt || (e.kind === 'TURN_END' ? `${t('turn')} ${d.turns}` : '') || (e.kind === 'ROLE_STARTED' ? `pid ${d.pid}` : '');
   return [route, extra].filter(Boolean).join(' · ');
 }
 function renderFeed() {
   const box = $('feed'); box.innerHTML = '';
   const shown = events.filter(e => e.kind !== 'UNCERTAIN').slice(-80).reverse();
   if (!shown.length) box.append(el('div', { class: 'row' }, el('span', { class: 'v' }, t('No activity yet'))));
-  for (const e of shown) box.append(el('div', { class: 'row' }, el('div', { class: 'ev' }, el('span', { class: 'time' }, fmtTime(e.ts)), el('span', { class: 'tag2 ' + e.kind }, t(e.kind.replace('_', ' ').toLowerCase())), el('span', { class: 'txt', title: eventText(e) }, eventText(e)))));
+  for (const e of shown) box.append(el('div', { class: 'row' }, el('div', { class: 'ev' }, el('span', { class: 'time' }, fmtTime(e.ts)), el('span', { class: 'tag2 ' + e.kind }, t(e.kind.replace(/_/g, ' ').toLowerCase())), el('span', { class: 'txt', title: eventText(e) }, eventText(e)))));
 }
 function setRunningLock(running) {
   for (const e of document.querySelectorAll('.side input, .side select, .side .switch, #btnAddCli, #optIdle button')) {
@@ -475,7 +580,7 @@ function renderStatus() {
     renderWorkspace(); renderRoles(); renderAdapters(); renderPlaceholders(); renderFeed(); setRunningLock(false); if (popOpen) renderPop(); return;
   }
   const b = status.bridge, roleList = status.roles;
-  if (selIdx >= roleList.length) selIdx = 0;
+  if (selIdx >= rosterList().length) selIdx = 0; // selIdx indexes rosterList(), not status.roles
   const busy = roleList.filter(r => r.state === 'busy').length;
   $('pill').innerHTML = `<span class="dot ${b.paused ? 'busy' : 'idle'}"></span>${b.paused ? t('Paused') : t('Bridge running')} · ${roleCountText(roleList)} · ${b.counts.held} ${t('held')}${busy ? ` · ${busy} ${t('working')}` : ''} · ${b.waitTurnEnd ? t('wait for turn end: all roles') : t('wait for turn end: per role')}`;
   renderRoles(); renderAdapters(); if (!renderStatus.ws) { renderWorkspace(); renderStatus.ws = 1; }
@@ -485,7 +590,7 @@ function renderStatus() {
   for (const h of b.held.slice(0, 5)) sl.append(el('div', { class: 'row' }, el('span', { class: 'v' }, `${t('held')} → ${h.to}`), el('span', { class: 'v' }, t(h.reason))));
   const rr = $('roleRun'); rr.innerHTML = '';
   for (const r of roleList) rr.append(el('div', { class: 'row' }, el('div', { class: 'k' }, el('span', { class: 'dot ' + r.state }), r.name), el('span', { class: 'v' }, r.type === 'observer' ? t('inbox only') : `${stateText(r.state)} · PID ${r.pid || '—'} · ${t('turn')} ${r.turns || 0}`)));
-  $('cfgInfo').textContent = `${t('Agents reply with')} tools/terminal_bridge_send.ps1 -ConfigPath ${b.configPath}`;
+  $('cfgInfo').textContent = `${t('Agents reply with')} tools/cli_conductor_send.ps1 -ConfigPath ${b.configPath}`;
   if ($('dock').dataset.mode !== 'run') { $('dock').innerHTML = ''; $('dock').dataset.mode = 'run'; dockCards = {}; $('stage').innerHTML = ''; }
   $('layout').classList.add('running'); $('terms').innerHTML = ''; $('terms').classList.add('hidden'); for (const id of ['stage', 'dock']) $(id).classList.remove('hidden');
   for (const r of roleList) if (r.type !== 'observer') ensureTerm(r); else if (terms[r.name]) { terms[r.name].card.remove(); delete terms[r.name]; }
@@ -505,7 +610,7 @@ function ensureTerm(r) {
   // parent's computed size, and with border-box padding it proposed more columns than visible.
   const wrap = el('div', { class: 'xwrap' }), body = el('div', { class: 'tbody' }, wrap);
   const dot = el('span', { class: 'dot ' + r.state }), sub = el('span', { class: 's' }), banner = el('div', { class: 'banner hidden' });
-  const idx = () => status.roles.findIndex(x => x.name === r.name);
+  const idx = () => rosterList().findIndex(x => x.name === r.name); // selIdx indexes the left list (rosterList)
   const rst = el('button', { class: 'tact rst', title: t('Restart this CLI (same arguments)'), onclick: e => { e.stopPropagation(); restartRole(r.name); } }, '↻');
   const focusBtn = el('button', { class: 'tact', title: t('Focus mode (double-click the title bar) · Esc to exit'), onclick: e => { e.stopPropagation(); toggleFocus(r.name); } }, '⤢');
   const card = el('div', { class: 'term', 'data-role': r.name }, el('div', { class: 'tbar', onclick: () => { select(idx()); touch(r.name); }, ondblclick: () => toggleFocus(r.name) }, el('div', { class: 't' }, dot, r.name, sub), el('div', { class: 'tacts' }, rst, focusBtn)), banner, body);
@@ -547,20 +652,22 @@ function refreshSoon() { clearTimeout(refreshSoon.t); refreshSoon.t = setTimeout
 
 // ---------- wiring ----------
 async function init() {
-  const rerender = () => { const sel = $('presetSel').value; if (loadPresets.data) loadPresets().then(() => $('presetSel').value = sel); renderWorkspace(); renderStatus(); };
+  const rerender = () => { const sel = $('presetSel').value; if (loadPresets.data) loadPresets().then(() => $('presetSel').value = sel); renderWorkspace(); renderStatus(); renderGbRow(); };
   setLang(LANG);
   $('btnLang').onclick = () => setLang(LANG === 'zh' ? 'en' : 'zh', rerender);
   wireSide(); wirePanel(); wireStage();
   $('loginClose').onclick = closeLogin;
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeCtx(); if ($('sheet').classList.contains('show')) $('sheet').classList.remove('show'); else closePop(); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeCtx(); if ($('gbSheet').classList.contains('show')) $('gbSheet').classList.remove('show'); else if ($('sheet').classList.contains('show')) $('sheet').classList.remove('show'); else closePop(); } });
   // Outside click closes the popover, except on its anchors (role list, Dock, rail, placeholders,
   // title bars), dialogs, and any scrollbar (pointer outside the element's client area).
   const onScrollbar = e => { const x = e.target; if (!(x instanceof Element) || x === document.documentElement) return false; return (x.clientWidth && e.offsetX > x.clientWidth) || (x.clientHeight && e.offsetY > x.clientHeight); };
-  document.addEventListener('pointerdown', e => { if (!popOpen || onScrollbar(e)) return; if (e.target.closest('#pop, #roles, #btnAddRole, .side .link, #dock, #srail, #stage .placeholder, #stage .tbar, #ctx, #sheet, #loginSheet, #shandle, #phandle')) return; closePop(); }, true);
+  document.addEventListener('pointerdown', e => { if (!popOpen || onScrollbar(e)) return; if (e.target.closest('#pop, #roles, #btnAddRole, .side .link, #dock, #srail, #stage .placeholder, #stage .tbar, #ctx, #sheet, #gbSheet, #loginSheet, #shandle, #phandle')) return; closePop(); }, true);
   window.addEventListener('resize', () => popOpen && positionPop());
   document.addEventListener('scroll', () => popOpen && positionPop(), true);
   [adapters, ui, cliCaps] = await Promise.all([api('GET', '/api/adapters'), api('GET', '/api/ui-state').catch(() => ui), api('GET', '/api/cliflags').catch(() => ({})), loadAccounts()]);
   const def = await api('GET', '/api/defaults');
+  if (def.briefing) Object.assign(bdef, def.briefing);
+  $('btnGb').onclick = e => { e.stopPropagation(); openGb(); }; $('gbRow').onclick = () => openGb(); renderGbRow();
   try { applyConfig(JSON.parse(localStorage.tbLast)); } catch { wsValue = def.workspace; renderWorkspace(); renderIdle(); }
   renderRoles(); renderAdapters(); renderPlaceholders(); renderFeed(); loadPresets();
   relayout();
@@ -576,7 +683,7 @@ async function init() {
   $('btnStart').onclick = async () => { const c = launchConfig(); localStorage.tbLast = JSON.stringify(c); $('btnStart').disabled = true;
     const dup = duplicateAccounts(c.roles);
     if (dup.length) { if (!confirm(`${t('These roles use the same CLI with the same account and will share one login and session state:')}\n${dup.join('\n')}\n\n${t('Start anyway?')}`)) { renderFoot(); return; } c.allowDuplicateAccounts = true; }
-    try { status = await api('POST', '/api/start', c); events = status.events || []; selIdx = 0; closePop(); ui = await api('GET', '/api/ui-state').catch(() => ui); renderStatus(); } catch (e) { toast(e.message); } finally { renderFoot(); } };
+    try { status = await api('POST', '/api/start', { ...c, globalBriefing: gbText(), lang: LANG }); events = status.events || []; selIdx = 0; closePop(); ui = await api('GET', '/api/ui-state').catch(() => ui); renderStatus(); } catch (e) { toast(e.message); } finally { renderFoot(); } };
   $('btnStop').onclick = async () => { if (!confirm(t('Stop the bridge and exit all CLIs?'))) return; $('btnStop').disabled = true; try { await api('POST', '/api/stop'); } finally { $('btnStop').disabled = false; } for (const n of Object.keys(terms)) { terms[n].card.remove(); terms[n].term.dispose(); delete terms[n]; } status = { running: false }; selIdx = 0; closePop(); renderStatus(); };
   $('swPause').onclick = async () => { status = await api('POST', '/api/pause', { paused: !sw($('swPause')) }); renderStatus(); };
   $('btnNew').onclick = () => { $('sheet').classList.add('show'); $('sMsg').focus(); };

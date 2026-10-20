@@ -9,7 +9,7 @@ let ui = { recentDirs: [], hiddenAdapters: [] };
 
 async function api(method, url, body) {
   let r;
-  try { r = await fetch(url, { method, headers: { 'content-type': 'application/json', 'x-terminal-bridge': '1' }, body: body ? JSON.stringify(body) : undefined }); }
+  try { r = await fetch(url, { method, headers: { 'content-type': 'application/json', 'x-cli-conductor': '1' }, body: body ? JSON.stringify(body) : undefined }); }
   catch { throw new Error(t('Cannot reach the server. Is npm start running?')); }
   const text = await r.text().catch(() => '');
   let j = null; try { j = text ? JSON.parse(text) : {}; } catch { j = null; }

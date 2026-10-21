@@ -1,6 +1,6 @@
 {
   "name": "cli-conductor",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Run several AI coding CLIs (Codex, Claude Code, Gemini, Qoder, ...) side by side in real Windows terminals and let them message each other.",
   "keywords": [
     "ai",

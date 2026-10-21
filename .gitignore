@@ -10,5 +10,7 @@ npm-debug.log*
 .env.*
 .DS_Store
 Thumbs.db
+# local edit backups
+*.bak-*
 .vscode/
 .idea/

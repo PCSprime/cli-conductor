@@ -3,10 +3,17 @@
 <h1 align="center">CLI 调度台（CLI Conductor）</h1>
 <p align="center"><b>在真实的 Windows 终端里并排运行多个 AI 编程 CLI，并让它们互相传话。</b></p>
 <p align="center"><a href="README.md">English</a> | <b>简体中文</b></p>
+<p align="center">
+  <a href="https://github.com/PCSprime/cli-conductor/actions/workflows/ci.yml"><img src="https://github.com/PCSprime/cli-conductor/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/PCSprime/cli-conductor/releases"><img src="https://img.shields.io/github/v/release/PCSprime/cli-conductor" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/platform-Windows-0078D6" alt="Platform: Windows">
+  <img src="https://img.shields.io/badge/node-%3E%3D20-339933" alt="Node.js >= 20">
+</p>
 
 CLI 调度台是一个本地网页应用。它把每个 AI CLI（Codex、Claude Code、Gemini CLI、Qwen Code、Qoder、Copilot……）分别运行在独立的 ConPTY 终端中，在浏览器里显示，并在它们之间转发消息：*CODER* 可以请 *REVIEWER* 审查代码，审查请求会像你亲手粘贴一样输入到审查者的提示符里。所有终端都是实时可交互的，你随时可以直接输入。
 
-> 状态：**0.1.0，早期版本**。仅支持 Windows。直接使用官方 CLI，本应用不经手任何 API 密钥。
+> 状态：**0.2.0，早期版本**。仅支持 Windows。直接使用官方 CLI，本应用不经手任何 API 密钥。
 
 ## 功能
 

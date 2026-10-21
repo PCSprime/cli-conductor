@@ -17,6 +17,7 @@ node --test test/unit.test.js
 node --test test/ui.test.js
 node --test test/accounts.test.js
 node --test test/restart.test.js
+node --test test/send-script.test.js
 node --test test/integration.test.js
 ```
 

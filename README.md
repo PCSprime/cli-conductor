@@ -3,10 +3,17 @@
 <h1 align="center">CLI Conductor</h1>
 <p align="center"><b>Run several AI coding CLIs side by side in real Windows terminals, and let them talk to each other.</b></p>
 <p align="center"><b>English</b> | <a href="README.zh-CN.md">简体中文</a></p>
+<p align="center">
+  <a href="https://github.com/PCSprime/cli-conductor/actions/workflows/ci.yml"><img src="https://github.com/PCSprime/cli-conductor/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/PCSprime/cli-conductor/releases"><img src="https://img.shields.io/github/v/release/PCSprime/cli-conductor" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/platform-Windows-0078D6" alt="Platform: Windows">
+  <img src="https://img.shields.io/badge/node-%3E%3D20-339933" alt="Node.js >= 20">
+</p>
 
 CLI Conductor is a small local web app. It starts each AI CLI (Codex, Claude Code, Gemini CLI, Qwen Code, Qoder, Copilot, …) in its own ConPTY terminal, shows them in your browser, and relays messages between them: a *CODER* can ask a *REVIEWER* for a review, and the review is typed into the reviewer's prompt as if you had pasted it yourself. You keep full control: every terminal is live and you can type into it at any time.
 
-> Status: **0.1.0, early**. Windows only. Works with the official CLIs as they are; no API keys go through this app.
+> Status: **0.2.0, early**. Windows only. Works with the official CLIs as they are; no API keys go through this app.
 
 ## Features
 

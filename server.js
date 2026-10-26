@@ -21,7 +21,7 @@ const REPO = ROOT;
 const STATE_SUBDIR = path.join('.tmp', 'cli_conductor'), SEND_SCRIPT = path.join(REPO, 'tools', 'cli_conductor_send.ps1');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 const VENDOR = {
-  '/vendor/xterm.js': '@xterm/xterm/lib/xterm.js', '/vendor/xterm.css': '@xterm/xterm/css/xterm.css', '/vendor/addon-fit.js': '@xterm/addon-fit/lib/addon-fit.js',
+  '/vendor/xterm.js': '@xterm/xterm/lib/xterm.js', '/vendor/xterm.css': '@xterm/xterm/css/xterm.css', '/vendor/addon-fit.js': '@xterm/addon-fit/lib/addon-fit.js', '/vendor/addon-webgl.js': '@xterm/addon-webgl/lib/addon-webgl.js',
   '/briefing.js': './lib/briefing.js', // shared with the UI (preview of the opening briefing)
 };
 

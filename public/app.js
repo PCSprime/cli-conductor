@@ -92,7 +92,15 @@ let roles = [
   { enabled: true, name: 'REVIEWER', type: 'agent', adapter: 'codex', delivery: 'immediate', cwd: '', args: '', briefing: '', briefOn: true, duty: '' },
   { enabled: false, name: 'ARCHIVE', type: 'observer', adapter: '', delivery: 'archive_only', cwd: '', args: '', briefing: '', briefOn: true, duty: '' },
 ];
-function roleSub(r) { return r.type === 'observer' ? t('archive · inbox only') : `${adapterLabel(r.adapter)} · ${r.delivery === 'after_turn' ? t('after turn') : t('immediate')}`; }
+// UI #19: one second-line format: CLI · account (non-default) · delivery · turns (running only).
+function roleLine(r, running) {
+  const parts = [running ? (r.label || adapterLabel(r.adapter)) : adapterLabel(r.adapter)];
+  if (r.account && r.account !== 'default') parts.push(r.account);
+  parts.push(r.delivery === 'after_turn' ? t('after turn') : t('immediate'));
+  if (running) parts.push(`${t('turn')} ${r.turns || 0}`);
+  return parts.filter(Boolean).join(' · ');
+}
+function roleSub(r) { return r.type === 'observer' ? t('archive · inbox only') : roleLine(r, false); }
 // Full left-list roster: always config roles (tbLast), overlaid with live status when running.
 // Roles disabled at Start (or not yet spawned) stay listed as stopped/off so they can be powered on.
 function rosterList() {
@@ -145,7 +153,7 @@ function renderRoles() {
   if (selIdx >= list.length) selIdx = Math.max(0, list.length - 1);
   // UI P0: skip the rebuild when nothing shown in the list changed (status ticks no longer reset the list mid-scroll).
   const liveSet = running ? (status.roles || []).filter(x => !x.stopped).map(x => x.name).join('|') : '';
-  const sig = JSON.stringify([LANG, running, selIdx, liveSet, list.map((r, i) => [r.name, r.type, r.enabled, r.state, r.stopped, r.notInRun, r.label, r.adapter, roleColor(r, i), running ? '' : roleSub(r)])]);
+  const sig = JSON.stringify([LANG, running, selIdx, liveSet, list.map((r, i) => [r.name, r.type, r.enabled, r.state, r.stopped, r.notInRun, r.label, r.adapter, roleColor(r, i), r.account, r.delivery, r.turns, running ? '' : roleSub(r)])]);
   if (box.dataset.sig === sig && box.childElementCount) { renderFoot(); renderSideRail(); return; }
   box.dataset.sig = sig; box.innerHTML = '';
   list.forEach((r, i) => {
@@ -171,7 +179,7 @@ function renderRoles() {
       ? el('div', { class: 'k powerk' }, power || '', el('span', { class: 'dot ' + (r.type === 'observer' ? 'archive' : (stopped ? 'offline' : r.state)), ...dotA(r.type === 'observer' ? 'archive' : (stopped ? 'offline' : r.state)) }))
       : el('div', { class: 'k' }, el('span', { class: 'gear' }, '›'), el('span', { class: 'dot ' + (r.enabled ? 'ready' : 'offline'), ...dotA(r.enabled ? 'ready' : 'offline') }));
     const sub = running
-      ? (r.type === 'observer' ? t('archive · inbox only') : (stopped ? (r.notInRun ? t('not started') : t('stopped')) : `${r.label || r.adapter} · ${stateText(r.state)}`))
+      ? (r.type === 'observer' ? t('archive · inbox only') : (stopped ? (r.notInRun ? t('not started') : t('stopped')) : roleLine(r, true)))
       : roleSub(r);
     box.append(el('div', { class: 'row rrow' + (sel ? ' sel' : '') + ((!running && !r.enabled) || stopped ? ' off' : ''), 'data-i': i, 'data-role': r.name || '', tabindex: '0', onclick: () => select(i, true),
       onkeydown: e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); select(i, true); const f = document.querySelector(`#roles .rrow[data-i="${i}"]`); if (f && !popOpen) f.focus(); } } },
@@ -649,6 +657,9 @@ function renderStatusCore() {
   renderFeed();
 }
 function termTheme() { const dark = matchMedia('(prefers-color-scheme: dark)').matches; return dark ? { background: '#121214', foreground: '#e5e5ea', cursor: '#0a84ff', selectionBackground: 'rgba(10,132,255,.35)' } : { background: '#fbfbfd', foreground: '#1d1d1f', cursor: '#007aff', selectionBackground: 'rgba(0,122,255,.25)' }; }
+// WebGL terminal renderer (#7): GPU drawing for busy terminals; any failure or GPU context loss falls back to the
+// built-in DOM renderer. localStorage.tbWebgl = '0' turns it off.
+function useWebgl(term) { try { if (!window.WebglAddon || localStorage.tbWebgl === '0') return; const gl = new WebglAddon.WebglAddon(); gl.onContextLoss(() => { try { gl.dispose(); } catch { } }); term.loadAddon(gl); } catch { } }
 function ensureTerm(r) {
   if (terms[r.name]) return terms[r.name];
   // The padding lives on .tbody and xterm opens in the unpadded .xwrap: FitAddon measures the
@@ -661,7 +672,7 @@ function ensureTerm(r) {
   const card = el('div', { class: 'term', 'data-role': r.name }, el('div', { class: 'tbar', onclick: () => { select(idx()); touch(r.name); }, ondblclick: () => toggleFocus(r.name) }, el('div', { class: 't' }, dot, r.name, sub), el('div', { class: 'tacts' }, rst, focusBtn)), banner, body);
   $('parking').append(card);
   const term = new Terminal({ fontFamily: '"SF Mono","Cascadia Mono",Consolas,"Sarasa Mono SC","Microsoft YaHei Mono",monospace', fontSize: termFont, lineHeight: 1.2, cursorBlink: true, theme: termTheme(), scrollback: 3000, allowProposedApi: true });
-  const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(wrap);
+  const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(wrap); useWebgl(term);
   term.onData(d => ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'input', role: r.name, data: d })));
   body.addEventListener('mousedown', () => { touch(r.name); const i = idx(); if (i !== selIdx) select(i); });
   // Refit on every size change and tell the PTY (cols/rows) so the CLI redraws for the visible size.

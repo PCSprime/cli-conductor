@@ -7,6 +7,14 @@
 /* UI P0: solid surfaces for persistent/scrolling areas + type scale */
 :root{--solidbg:rgba(255,255,255,.92);--footsh:0 -8px 16px -8px rgba(0,0,0,.08);--text2:#3a3a3c;--fs-title:16px;--fs-section:13px;--fs-name:14px;--fs-body:13px;--fs-meta:12px;--fs-tag:11px;--fs-num:20px}
 @media (prefers-color-scheme:dark){:root{--solidbg:rgba(28,28,30,.94);--footsh:0 -8px 16px -8px rgba(0,0,0,.45);--text2:#d1d1d6}}
+/* UI #18: Radix-style 12-step neutral scale (slate). 1-2 backgrounds, 3-5 component bg (normal/hover/pressed),
+   6-8 borders, 11 secondary text, 12 primary text. Alpha steps keep translucent fills translucent. Accents unchanged. */
+:root{--n1:#fcfcfd;--n2:#f9f9fb;--n3:#f0f0f3;--n4:#e8e8ec;--n5:#e0e1e6;--n6:#d9d9e0;--n7:#cdced6;--n8:#b9bbc6;--n9:#8b8d98;--n10:#80838d;--n11:#60646c;--n12:#1c2024;
+--nA3:rgba(0,0,51,.06);--nA4:rgba(0,0,45,.09);--nA5:rgba(0,9,50,.12);--nA6:rgba(0,0,47,.15);--nA7:rgba(0,6,46,.2);
+--card:#fff;--term:var(--n2);--field:var(--nA3);--seg:var(--nA4);--hover:var(--nA4);--pressed:var(--nA5);--sep:var(--nA6);--border:var(--n7);--gray:var(--n8);--sub:var(--n11);--text:var(--n12)}
+@media (prefers-color-scheme:dark){:root{--n1:#111113;--n2:#18191b;--n3:#212225;--n4:#272a2d;--n5:#2e3135;--n6:#363a3f;--n7:#43484e;--n8:#5a6169;--n9:#696e77;--n10:#777b84;--n11:#b0b4ba;--n12:#edeef0;
+--nA3:rgba(221,234,248,.08);--nA4:rgba(211,237,248,.11);--nA5:rgba(217,237,254,.15);--nA6:rgba(214,235,253,.19);--nA7:rgba(217,237,255,.25);
+--card:var(--n2);--term:var(--n1);--field:var(--nA4);--seg:var(--nA5);--hover:var(--nA4);--pressed:var(--nA5);--sep:var(--nA5);--border:var(--n7);--gray:var(--n8);--sub:var(--n11);--text:var(--n12);--solidbg:rgba(24,25,27,.94)}}
 *{box-sizing:border-box}html,body{height:100%;margin:0}
 body{background:var(--wall);color:var(--text);font:13px/1.35 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Microsoft YaHei UI","Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;-webkit-font-smoothing:antialiased;display:flex;flex-direction:column;overflow:hidden}
 .hidden{display:none!important}
@@ -465,3 +473,6 @@ h1,.sheet h2{font-size:var(--fs-title);font-weight:600}
 .row.empty{min-height:40px}.row.empty .v.wrap{white-space:normal}
 #btnRescan.busy{font-size:0;opacity:.7;cursor:progress}#btnRescan.busy::after{content:attr(data-busy);font-size:var(--fs-body)}
 @media (prefers-reduced-transparency:reduce){.ctx{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--card)}.toast{backdrop-filter:none;-webkit-backdrop-filter:none;background:#1e1e20}}
+
+/* ---------- UI #18/#19 (2026-10-26) ---------- */
+.rrow:hover{background:var(--hover)}.rrow.sel{background:var(--sel)}.rrow:active{background:var(--pressed)}.rrow.sel:active{background:var(--sel)}

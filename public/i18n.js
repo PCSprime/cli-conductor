@@ -251,3 +251,5 @@ Reply "ready" in this terminal (no bridge message needed) and wait for the first
 请在本终端回复“就绪”（无需通过桥接发消息），然后等待第一个任务。`,
 };
 function briefingTemplate() { return BRIEFING_TEMPLATES[LANG] || BRIEFING_TEMPLATES.en; }
+// UI P1: strings added for status text, shortcut sheet, duplicate-account banner/confirm (only fills missing keys).
+for (const [k, v] of Object.entries({"enabled · not started":"已启用 · 未启动","View accounts":"查看账号","Start anyway":"仍然启动","Change accounts":"去改账号","Keyboard shortcuts":"键盘快捷键","Close":"关闭","Bring role 1–9 on stage (left list order)":"把第 1–9 个角色放上舞台（按左侧列表顺序）","Double-click a terminal title bar":"双击终端标题栏","Focus mode on/off":"进入 / 退出专注模式","Leave focus mode (when the terminal is not focused) · close popovers and sheets":"退出专注模式（焦点不在终端时）· 关闭弹窗","Press and drag a Dock card":"按住拖动 Dock 卡片","Reorder the Dock (Esc cancels)":"调整 Dock 顺序（Esc 取消）","⋯ or right-click a Dock card":"Dock 卡片上的 ⋯ 或右键","Role actions":"角色操作","Show this list":"显示本列表","Same CLI and same account:":"同一 CLI 使用了同一账号：","These roles use the same CLI with the same account and will share one login and session state:":"以下角色使用同一 CLI 的同一账号，将共享登录和会话状态："})) if (!(k in ZH)) ZH[k] = v;

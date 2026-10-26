@@ -75,7 +75,7 @@ details>div{animation:drop .25s ease}@keyframes drop{from{opacity:0;transform:tr
 .rrow{cursor:pointer;transition:background .15s}.rrow:hover{background:var(--field)}.rrow.sel{background:var(--sel)}.rrow.off .k>div:not(.icon){opacity:.45}
 .rrow .nm{font-weight:600;font-size:13px}.rrow .gear{color:var(--sub);font-size:15px;opacity:0;transition:opacity .15s}.rrow:hover .gear,.rrow.sel .gear{opacity:.8}
 /* popover */
-.pop{position:fixed;z-index:15;left:324px;top:72px;width:380px;max-height:calc(100vh - 86px);overflow:visible;padding:0;display:flex;flex-direction:column;border-radius:18px;background:var(--glassbg);backdrop-filter:saturate(180%) blur(30px);-webkit-backdrop-filter:saturate(180%) blur(30px);box-shadow:var(--sh3);opacity:0;transform:translateX(-10px) scale(.98);transform-origin:left top;pointer-events:none;transition:opacity .22s ease,transform .32s cubic-bezier(.2,.8,.2,1)}
+.pop{position:fixed;z-index:15;left:324px;top:72px;width:380px;max-height:calc(100vh - 86px);overflow:visible;padding:0;display:flex;flex-direction:column;border-radius:18px;background:var(--card);box-shadow:var(--sh3);opacity:0;transform:translateX(-10px) scale(.98);transform-origin:left top;pointer-events:none;transition:opacity .22s ease,transform .32s cubic-bezier(.2,.8,.2,1)}
 .pop.show{opacity:1;transform:none;pointer-events:auto}
 .pop::before{content:"";position:absolute;left:-7px;top:var(--arrow,40px);width:14px;height:14px;background:inherit;transform:rotate(45deg);border-radius:3px;box-shadow:-1px 1px 0 rgba(0,0,0,.04)}
 /* terminals */
@@ -105,8 +105,8 @@ details>div{animation:drop .25s ease}@keyframes drop{from{opacity:0;transform:tr
 .tag2.HELD,.tag2.PAUSED{background:rgba(255,149,0,.15);color:var(--orange)}
 .tag2.REJECTED,.tag2.ATTENTION,.tag2.ROLE_EXITED,.tag2.BRIEFING_FAILED{background:rgba(255,59,48,.12);color:var(--red)}
 .tag2.ARCHIVED{background:rgba(142,142,147,.16);color:var(--sub)}
-.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.25);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:20;opacity:0;pointer-events:none;transition:opacity .2s}.sheet-bg.show{opacity:1;pointer-events:auto}
-.sheet{background:var(--glassbg);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border-radius:18px;padding:16px;width:min(520px,92vw);box-shadow:var(--sh3);transform:scale(.96);transition:transform .3s cubic-bezier(.2,.8,.2,1)}.sheet-bg.show .sheet{transform:none}
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center;z-index:20;opacity:0;pointer-events:none;transition:opacity .2s}.sheet-bg.show{opacity:1;pointer-events:auto}
+.sheet{background:var(--card);border-radius:18px;padding:16px;width:min(520px,92vw);box-shadow:var(--sh3);transform:scale(.96);transition:transform .3s cubic-bezier(.2,.8,.2,1)}.sheet-bg.show .sheet{transform:none}
 .sheet h2{font-size:16px;margin:0 4px 12px;display:flex;justify-content:space-between;align-items:center}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:rgba(30,30,32,.9);backdrop-filter:blur(12px);color:#fff;font-size:13px;padding:9px 16px;border-radius:999px;opacity:0;pointer-events:none;transition:.25s;z-index:30;max-width:80vw}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -425,3 +425,38 @@ h1,.sheet h2{font-size:var(--fs-title);font-weight:600}
 .dc .sub,.dc .n em,.dc .l{font-size:var(--fs-meta);line-height:16px;min-height:16px}
 .dc-foot{font-size:var(--fs-tag);line-height:14px;min-height:14px}
 .dc .key,.dc-foot .key{color:var(--sub)}
+
+/* ---------- UI P1 (2026-10-26) ---------- */
+/* scrolling overlays (.pop / .sheet) are solid now; blur stays only on .ctx and .toast */
+/* #8 status shapes, not colour only */
+.dot{position:relative}
+.dot.offline{background:transparent;box-shadow:inset 0 0 0 1.5px var(--gray)}
+.ri.role .dot.offline,.ri.role .dot.ready{background:var(--card);box-shadow:inset 0 0 0 1.5px var(--gray)}
+.dot.busy,.dot.starting{animation:none;box-shadow:none}
+.dot.busy::after,.dot.starting::after{content:"";position:absolute;inset:-3px;border-radius:50%;border:1.5px solid rgba(255,149,0,.25);border-top-color:var(--orange);animation:spin 1s linear infinite}
+.dot.attention{width:12px;height:12px;display:inline-grid;place-items:center}
+.dot.attention::after{content:"!";color:#fff;font:700 9px/1 system-ui,sans-serif}
+.rrow>.k:last-child>.dot.attention{margin:0}
+@media (prefers-reduced-motion:reduce){.dot.busy::after,.dot.starting::after{animation:none}}
+/* #9 last sub-11px text */
+.dc .key{font-size:var(--fs-tag)}
+/* #10 duplicate-account banner */
+.why.warn{display:flex;gap:8px;align-items:flex-start;text-align:left;margin:8px 0 0;padding:8px 10px;border-radius:10px;background:rgba(255,149,0,.12);color:#a35200;font-size:12px;line-height:1.45}
+.why-ico{flex:none;line-height:1.45}.why-body{min-width:0}
+.why-chips,.ask-list{display:flex;flex-wrap:wrap;gap:4px;margin:4px 0}
+.wchip{font-size:11px;line-height:1.5;padding:1px 7px;border-radius:999px;background:rgba(255,149,0,.16);color:#a35200;word-break:break-all}
+.why.warn .link{font-size:12px;padding:0;color:#a35200;text-decoration:underline}
+@media (prefers-color-scheme:dark){.why.warn,.why.warn .link,.wchip{color:#ffb340}}
+/* #11 toast kinds */
+.toast.error{background:rgba(176,32,24,.95)}.toast.error::before{content:"⚠ "}
+.toast.ok{background:rgba(26,127,55,.95)}.toast.ok::before{content:"✓ "}
+/* #13/#15 in-app sheets */
+.sheet.ask{width:min(480px,92vw)}
+.sheet.ask h2{display:block;font-size:15px;line-height:1.45;margin:0 4px 10px}
+.sheet.ask .ask-list{margin:0 4px 14px}
+.ask-acts{display:flex;gap:10px;justify-content:flex-end;align-items:center;margin-top:4px}
+.kb-list{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;align-items:center;margin:0 4px 14px;font-size:13px}
+.kb-list kbd{font:600 12px/1.6 "SF Mono","Cascadia Mono",Consolas,monospace;padding:1px 7px;border-radius:6px;background:var(--field);box-shadow:inset 0 -1px 0 var(--sep);white-space:nowrap;justify-self:start}
+/* #14 visible keyboard focus everywhere */
+:where(button,[role=button],summary,.rrow,.chip,a,[tabindex]):focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.rrow:focus-visible{outline-offset:-2px;border-radius:10px}

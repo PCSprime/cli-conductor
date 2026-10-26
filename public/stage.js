@@ -238,7 +238,7 @@ function renderDock() {
       d = dockCards[r.name] = { el: card, dot, sub, line, badge, mute, more };
     }
     const cur = roleByName(r.name);
-    d.dot.className = 'dot ' + (cur.type === 'observer' ? 'archive' : cur.state);
+    d.dot.className = 'dot ' + (cur.type === 'observer' ? 'archive' : cur.state); setDotA11y(d.dot, cur.type === 'observer' ? 'archive' : cur.state);
     d.sub.textContent = cur.type === 'observer' ? t('archive only') : `${cur.label || cur.adapter} · ${stateLabel(cur)}`;
     d.line.textContent = cur.type === 'observer' ? `${(status.bridge.counts || {}).archived || 0} ${t('archived')}` : (cur.state === 'restarting' ? t('Restarting: exiting and relaunching with the same arguments…') : lastLine(r.name) || '—');
     d.el.title = `${r.name} · ${d.sub.textContent}\n${d.line.textContent}\n${t('Click to stage · press and drag to reorder')}`;
@@ -289,14 +289,14 @@ function openOverflow(name, anchor) {
 }
 async function restartRole(name) {
   const r = roleByName(name); if (!r || r.state === 'restarting') return;
-  try { await api('POST', '/api/restart-role', { role: name }); toast(`${name}: ${t('restarting…')}`); refreshSoon(); } catch (e) { toast(e.message); }
+  try { await api('POST', '/api/restart-role', { role: name }); toast(`${name}: ${t('restarting…')}`); refreshSoon(); } catch (e) { toast(e.message, 'error'); }
 }
 // 重发说明: the current global briefing + this role's duty/extra, sent once when it is idle.
 async function rebriefRole(name) {
   if (!confirm(`${name}: ${t('Resend the opening briefing to this role now? It is sent once, when the role is idle.')}`)) return;
   const cfg = (typeof roles !== 'undefined' ? roles : []).find(r => r.name === name);
   const body = { role: name, globalBriefing: gbText(), lang: LANG, ...(cfg ? { duty: cfg.duty || '', briefing: cfg.briefing || '' } : {}) };
-  try { await api('POST', '/api/rebrief', body); toast(`${name}: ${t('briefing queued, sent when idle')}`); refreshSoon(); } catch (e) { toast(e.message); }
+  try { await api('POST', '/api/rebrief', body); toast(`${name}: ${t('briefing queued, sent when idle')}`); refreshSoon(); } catch (e) { toast(e.message, 'error'); }
 }
 async function startRole(name) {
   const live = (status.roles || []).find(r => r.name === name);
@@ -323,7 +323,7 @@ async function startRole(name) {
     renderStatus();
     toast(`${t('Started')} ${name}`);
     if (status.accountWarning) toast(`${t('Note: shared CLI account')} — ${status.accountWarning}`);
-  } catch (e) { toast(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 async function stopRole(name, { ask = true } = {}) {
   if (ask && !confirm(`${t('Stop this role?')} ${name}\n${t('Messages to it are held until you restart it.')}`)) return;
@@ -339,7 +339,7 @@ async function stopRole(name, { ask = true } = {}) {
     renderRoles();
     toast(wasOn ? `${t('Stopped')} ${name} · ${t('Stage auto-filled')}` : `${t('Stopped')} ${name}`);
     refreshSoon();
-  } catch (e) { toast(e.message); }
+  } catch (e) { toast(e.message, 'error'); }
 }
 
 // ---------- Dock reorder (movement-threshold drag, ghost + placeholder) ----------
@@ -590,6 +590,8 @@ function applySide() {
   applyZoom();
   // Default width scales with the viewport until the user drags it (then the stored width wins).
   const L = $('layout'), w = Math.max(220, Math.min(480, Number(localStorage.tbSideW) || Math.round(Math.max(232, Math.min(300, innerWidth * .2)))) * uiZoom());
+  // UI P1 #12: very narrow first visit (< 1024 CSS px) starts with the left list as a rail; a manual choice always wins.
+  if (localStorage.tbSideC == null && innerWidth < 1024) localStorage.tbSideC = '1';
   L.style.setProperty('--sw', w + 'px'); L.classList.toggle('scollapsed', localStorage.tbSideC === '1');
   $('shandle').title = t(localStorage.tbSideC === '1' ? 'Click to expand' : 'Drag to resize · click to collapse');
 }
@@ -647,7 +649,7 @@ function accountRow(r, rerender) {
   const name = el('input', { type: 'text', class: 'field mono', placeholder: t('account name, e.g. work') });
   const go = el('button', { class: 'btn sm', onclick: async () => {
     try { const n = name.value.trim().toLowerCase(); acct = await api('POST', '/api/accounts', { cli: r.adapter, name: n }); r.account = n; rerender(); renderAccounts(); openLogin(r.adapter, n); }
-    catch (e) { toast(e.message); }
+    catch (e) { toast(e.message, 'error'); }
   } }, t('Create & log in'));
   newBox.append(name, go, el('div', { class: 'hint' }, `${t('Stored in')} ${acct.root || ''}${(acct.root || '').includes('\\') ? '\\' : '/'}${r.adapter}-<name> · ${cap.env}`));
   const cur = list.find(a => a.name === r.account);
@@ -655,10 +657,10 @@ function accountRow(r, rerender) {
   const tip = r.adapter === 'codex'
     ? el('div', { class: 'hint', style: 'margin-top:4px' }, t('Extra Codex accounts use the non-admin (unelevated) Windows sandbox, so they cannot break the Codex Desktop sandbox.'))
     : '';
-  return optRow('Account', 'Which login this CLI uses. Second account: pick New account, type a name, then Create & log in.', el('div', { class: 'ctl' }, sel, tip, stat, newBox, el('button', { class: 'link', style: 'align-self:flex-start', onclick: () => { closePop(); showAccounts(); } }, t('Manage accounts') + ' →')), true);
+  return optRow('Account', 'Which login this CLI uses. Second account: pick “New account…”, type a name, then “Create & log in”.', el('div', { class: 'ctl' }, sel, tip, stat, newBox, el('button', { class: 'link', style: 'align-self:flex-start', onclick: () => { closePop(); showAccounts(); } }, t('Manage accounts') + ' →')), true);
 }
 async function openLogin(cli, name) {
-  let res; try { res = await api('POST', '/api/account-login', { cli, name }); } catch (e) { return toast(e.message); }
+  let res; try { res = await api('POST', '/api/account-login', { cli, name }); } catch (e) { return toast(e.message, 'error'); }
   loginId = res.id;
   $('loginTitle').textContent = `${t('Log in')} · ${cli} · ${name}`;
   $('loginCmd').textContent = `${cli} ${(acct.supported[cli] || {}).login || ''}`.trim() + `   (${(acct.supported[cli] || {}).env}=${acct.root}${(acct.root || '').includes('\\') ? '\\' : '/'}${cli}-${name})`;
@@ -700,7 +702,7 @@ function renderAccounts() {
   for (const cli of clis) {
     const label = adapterLabel(cli), list = acct.accounts[cli] || [];
     const name = el('input', { type: 'text', class: 'field mono', placeholder: t('account name, e.g. work') });
-    const create = async () => { try { const n = name.value.trim().toLowerCase(); acct = await api('POST', '/api/accounts', { cli, name: n }); acctOpen[cli] = false; renderAccounts(); if (popOpen) renderPop(); openLogin(cli, n); } catch (e) { toast(e.message); } };
+    const create = async () => { try { const n = name.value.trim().toLowerCase(); acct = await api('POST', '/api/accounts', { cli, name: n }); acctOpen[cli] = false; renderAccounts(); if (popOpen) renderPop(); openLogin(cli, n); } catch (e) { toast(e.message, 'error'); } };
     name.addEventListener('keydown', e => { if (e.key === 'Enter') create(); });
     const newRow = el('div', { class: 'row newrow' + (acctOpen[cli] ? '' : ' hidden') }, name, el('button', { class: 'btn sm', onclick: create }, t('Create')), cli === 'codex' ? el('div', { class: 'hint', style: 'flex-basis:100%' }, t('Extra Codex accounts use the non-admin (unelevated) Windows sandbox, so they cannot break the Codex Desktop sandbox.')) : '');
     box.append(el('div', { class: 'row acli' }, el('span', { class: 'nm' }, label), el('button', { class: 'link', onclick: () => { acctOpen[cli] = !acctOpen[cli]; newRow.classList.toggle('hidden'); if (acctOpen[cli]) name.focus(); } }, '＋ ' + t('New account'))));
@@ -709,7 +711,7 @@ function renderAccounts() {
       el('div', { class: 'k' }, el('span', { class: 'dot ' + (a.loggedIn ? 'idle' : 'busy') }), el('div', { style: 'min-width:0' }, el('div', { class: 'mono-in' }, a.name), el('div', { class: 'v' + (a.loggedIn ? ' okc' : ' warnc') }, a.loggedIn ? t('logged in ✓') : t('not logged in')))),
       el('div', { class: 'cliact' },
         el('button', { class: 'ibtn', title: a.loggedIn ? t('Re-login') : t('Log in'), 'aria-label': t('Re-login'), onclick: () => openLogin(cli, a.name) }, '↻'),
-        el('button', { class: 'ibtn', title: t('Open folder'), 'aria-label': t('Open folder'), onclick: async () => { try { const r = await api('POST', '/api/open-account-folder', { cli, name: a.name }); toast(`${t('Opened')} ${r.dir}`); } catch (e) { toast(e.message); } } }, '📂'))));
+        el('button', { class: 'ibtn', title: t('Open folder'), 'aria-label': t('Open folder'), onclick: async () => { try { const r = await api('POST', '/api/open-account-folder', { cli, name: a.name }); toast(`${t('Opened')} ${r.dir}`); } catch (e) { toast(e.message, 'error'); } } }, '📂'))));
     box.append(newRow);
   }
   $('acctFoot').textContent = `${t('To use an account for a role: click the role → Account → pick it.')} ${t('Only Codex, Claude Code and Gemini CLI support separate accounts.')}`;

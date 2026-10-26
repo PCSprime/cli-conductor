@@ -2,8 +2,11 @@
 const $ = id => document.getElementById(id);
 const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v !== undefined && v !== null && v !== false) e.setAttribute(k, v); } for (const c of kids.flat()) if (c !== null && c !== undefined && c !== '') e.append(c instanceof Node ? c : document.createTextNode(String(c))); return e; };
 const COLORS = ['#5e5ce6', '#0a84ff', '#34c759', '#ff9500', '#af52de', '#ff2d55'];
-const STATE_TEXT = { idle: 'idle', busy: 'working', starting: 'starting', offline: 'offline', attention: 'needs attention', archive: 'inbox only', restarting: 'restarting' };
+const STATE_TEXT = { idle: 'idle', busy: 'working', starting: 'starting', offline: 'offline', attention: 'needs attention', archive: 'inbox only', restarting: 'restarting', ready: 'enabled · not started' };
 const stateText = s => STATE_TEXT[s] ? t(STATE_TEXT[s]) : s;
+// UI P1 #8: status is never colour-only; every dot carries a text alternative.
+const dotA = state => { const s = stateText(state); return { title: s, role: 'img', 'aria-label': s }; };
+function setDotA11y(d, state) { const s = stateText(state); d.title = s; d.setAttribute('role', 'img'); d.setAttribute('aria-label', s); }
 let adapters = [], status = { running: false }, terms = {}, ws = null, events = [], selIdx = 0, popOpen = false;
 let ui = { recentDirs: [], hiddenAdapters: [] };
 
@@ -17,7 +20,27 @@ async function api(method, url, body) {
   if (!r.ok) throw new Error(tErr((j && j.error) || r.statusText || `HTTP ${r.status}`));
   return j;
 }
-function toast(msg) { const x = $('toast'); x.textContent = msg; x.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => x.classList.remove('show'), 3200); }
+// UI P1 #11: toast(msg, kind) — kind 'error' (stays 5 s) or 'ok'; announced politely to screen readers.
+function toast(msg, kind) { const x = $('toast'); if (!x.hasAttribute('role')) { x.setAttribute('role', 'status'); x.setAttribute('aria-live', 'polite'); } x.textContent = msg; x.classList.remove('error', 'ok'); if (kind) x.classList.add(kind); x.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => x.classList.remove('show'), kind === 'error' ? 5000 : 3200); }
+// UI P1 #13/#15: small in-app sheet (solid, no blur). Resolves with the clicked button's value, or null.
+function dynSheet(title, body, buttons, cls = '') {
+  return new Promise(res => {
+    const bg = el('div', { class: 'sheet-bg dyn ' + cls });
+    const close = v => { if (bg._done) return; bg._done = true; bg.classList.remove('show'); setTimeout(() => bg.remove(), 220); res(v); };
+    bg._close = close;
+    bg.addEventListener('click', e => { if (e.target === bg) close(null); });
+    bg.append(el('div', { class: 'sheet ask', role: 'dialog', 'aria-modal': 'true' }, el('h2', {}, title), body || '',
+      el('div', { class: 'ask-acts' }, buttons.map(([label, v, c]) => el('button', { class: c || 'btn', type: 'button', onclick: () => close(v) }, label)))));
+    document.body.append(bg); requestAnimationFrame(() => { bg.classList.add('show'); const b = bg.querySelector('.ask-acts button'); if (b) b.focus(); });
+  });
+}
+function showShortcuts() {
+  if (document.querySelector('.sheet-bg.kb')) return;
+  const rows = [['Ctrl+1 … Ctrl+9', t('Bring role 1–9 on stage (left list order)')], [t('Double-click a terminal title bar'), t('Focus mode on/off')],
+    ['Esc', t('Leave focus mode (when the terminal is not focused) · close popovers and sheets')], [t('Press and drag a Dock card'), t('Reorder the Dock (Esc cancels)')],
+    [t('⋯ or right-click a Dock card'), t('Role actions')], ['?', t('Show this list')]];
+  dynSheet(t('Keyboard shortcuts'), el('div', { class: 'kb-list' }, rows.flatMap(([k, v]) => [el('kbd', {}, k), el('span', {}, v)])), [[t('Close'), null, 'btn']], 'kb');
+}
 function sw(btn, on) { if (on !== undefined) btn.classList.toggle('on', !!on); return btn.classList.contains('on'); }
 function seg(options, value, onchange, s = el('div', { class: 'seg' })) {
   s.innerHTML = '';
@@ -28,14 +51,14 @@ const roleColor = (r, i) => r.type === 'observer' ? '#8e8e93' : COLORS[i % COLOR
 const adapterLabel = id => (adapters.find(a => a.id === id) || {}).label || id || '';
 
 // ---------- ui state (recent folders, hidden CLIs) ----------
-async function uiPatch(p) { try { ui = await api('POST', '/api/ui-state', p); } catch (e) { toast(e.message); } }
+async function uiPatch(p) { try { ui = await api('POST', '/api/ui-state', p); } catch (e) { toast(e.message, 'error'); } }
 // Folder field: manual input + 浏览… (native picker on the server) + recent chips.
 function folderField({ value, placeholder, onchange, recent = true }) {
   const input = el('input', { type: 'text', class: 'field mono', value: value || '', placeholder: placeholder || '', oninput: e => onchange(e.target.value) });
   const browse = el('button', { class: 'browse', type: 'button', onclick: async () => {
     browse.disabled = true;
     try { const r = await api('POST', '/api/pick-folder', { initial: input.value.trim() }); if (r.path) { input.value = r.path; onchange(r.path); ui = await api('GET', '/api/ui-state'); renderChips(); } }
-    catch (e) { toast(e.message); } finally { browse.disabled = !!status.running; }
+    catch (e) { toast(e.message, 'error'); } finally { browse.disabled = !!status.running; }
   } }, t('Browse…'));
   const chips = el('div', { class: 'recent' });
   function renderChips() {
@@ -57,7 +80,10 @@ function renderFoot() {
   const reason = !w ? t('Set a workspace folder first.') : n < 2 ? t('Enable at least two roles.') : '';
   start.disabled = !!reason; why.textContent = reason; why.classList.remove('warn');
   const dup = reason ? [] : duplicateAccounts(roles);
-  if (dup.length) { why.textContent = `${t('Same CLI and same account:')} ${dup.join('; ')}`; why.classList.add('warn'); }
+  if (dup.length) { // UI P1 #10: soft warning banner with role chips and a link to the accounts section
+    why.textContent = ''; why.classList.add('warn');
+    why.append(el('span', { class: 'why-ico', 'aria-hidden': 'true' }, '⚠'), el('div', { class: 'why-body' }, el('div', {}, t('Same CLI and same account:')), el('div', { class: 'why-chips' }, dup.map(d => el('span', { class: 'wchip' }, d))), el('button', { class: 'link', type: 'button', onclick: () => showAccounts() }, t('View accounts'))));
+  }
 }
 
 // ---------- roles (sidebar list + popover editor) ----------
@@ -142,12 +168,13 @@ function renderRoles() {
       });
     }
     const trail = running
-      ? el('div', { class: 'k powerk' }, power || '', el('span', { class: 'dot ' + (r.type === 'observer' ? 'archive' : (stopped ? 'offline' : r.state)) }))
-      : el('div', { class: 'k' }, el('span', { class: 'gear' }, '›'), el('span', { class: 'dot ' + (r.enabled ? 'ready' : 'offline') }));
+      ? el('div', { class: 'k powerk' }, power || '', el('span', { class: 'dot ' + (r.type === 'observer' ? 'archive' : (stopped ? 'offline' : r.state)), ...dotA(r.type === 'observer' ? 'archive' : (stopped ? 'offline' : r.state)) }))
+      : el('div', { class: 'k' }, el('span', { class: 'gear' }, '›'), el('span', { class: 'dot ' + (r.enabled ? 'ready' : 'offline'), ...dotA(r.enabled ? 'ready' : 'offline') }));
     const sub = running
       ? (r.type === 'observer' ? t('archive · inbox only') : (stopped ? (r.notInRun ? t('not started') : t('stopped')) : `${r.label || r.adapter} · ${stateText(r.state)}`))
       : roleSub(r);
-    box.append(el('div', { class: 'row rrow' + (sel ? ' sel' : '') + ((!running && !r.enabled) || stopped ? ' off' : ''), 'data-i': i, 'data-role': r.name || '', onclick: () => select(i, true) },
+    box.append(el('div', { class: 'row rrow' + (sel ? ' sel' : '') + ((!running && !r.enabled) || stopped ? ' off' : ''), 'data-i': i, 'data-role': r.name || '', tabindex: '0', onclick: () => select(i, true),
+      onkeydown: e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); select(i, true); const f = document.querySelector(`#roles .rrow[data-i="${i}"]`); if (f && !popOpen) f.focus(); } } },
       el('div', { class: 'k' }, check, el('div', { class: 'icon', style: `background:${roleColor(r, i)}` }, (r.name || '?')[0]),
         el('div', { style: 'min-width:0' }, el('div', { class: 'nm' }, r.name || '—'), el('div', { class: 'v' }, sub))),
       trail));
@@ -364,7 +391,7 @@ function roleEditorFoot(r, i, running) {
         if (r.type !== 'observer' && !r.adapter) return toast(t('Pick a CLI'));
         btn.disabled = true;
         try { hiddenRoles.delete(n); saveRoster(); closePop(); await startRole(n); }
-        catch (err) { toast(err.message || String(err)); }
+        catch (err) { toast(err.message || String(err), 'error'); }
       } }, t('Save & start')))
     : el('button', { class: 'btn sm', onclick: closePop }, t('Done'));
   return el('div', { style: 'margin-top:12px;display:flex;justify-content:space-between;align-items:center' }, del, right);
@@ -604,7 +631,7 @@ function renderStatusCore() {
   }
   const rr = $('roleRun'), rrSig = JSON.stringify([LANG, roleList.map(r => [r.name, r.type, r.state, r.pid, r.turns])]);
   if (rr.dataset.sig !== rrSig) { rr.dataset.sig = rrSig; rr.innerHTML = '';
-  for (const r of roleList) rr.append(el('div', { class: 'row' }, el('div', { class: 'k' }, el('span', { class: 'dot ' + r.state }), r.name), el('span', { class: 'v' }, r.type === 'observer' ? t('inbox only') : `${stateText(r.state)} · PID ${r.pid || '—'} · ${t('turn')} ${r.turns || 0}`)));
+  for (const r of roleList) rr.append(el('div', { class: 'row' }, el('div', { class: 'k' }, el('span', { class: 'dot ' + r.state, ...dotA(r.state) }), r.name), el('span', { class: 'v' }, r.type === 'observer' ? t('inbox only') : `${stateText(r.state)} · PID ${r.pid || '—'} · ${t('turn')} ${r.turns || 0}`)));
   }
   $('cfgInfo').textContent = `${t('Agents reply with')} tools/cli_conductor_send.ps1 -ConfigPath ${b.configPath}`;
   if ($('dock').dataset.mode !== 'run') { $('dock').innerHTML = ''; $('dock').dataset.mode = 'run'; dockCards = {}; $('stage').innerHTML = ''; }
@@ -625,7 +652,7 @@ function ensureTerm(r) {
   // The padding lives on .tbody and xterm opens in the unpadded .xwrap: FitAddon measures the
   // parent's computed size, and with border-box padding it proposed more columns than visible.
   const wrap = el('div', { class: 'xwrap' }), body = el('div', { class: 'tbody' }, wrap);
-  const dot = el('span', { class: 'dot ' + r.state }), sub = el('span', { class: 's' }), banner = el('div', { class: 'banner hidden' });
+  const dot = el('span', { class: 'dot ' + r.state, ...dotA(r.state) }), sub = el('span', { class: 's' }), banner = el('div', { class: 'banner hidden' });
   const idx = () => rosterList().findIndex(x => x.name === r.name); // selIdx indexes the left list (rosterList)
   const rst = el('button', { class: 'tact rst', title: t('Restart this CLI (same arguments)'), onclick: e => { e.stopPropagation(); restartRole(r.name); } }, '↻');
   const focusBtn = el('button', { class: 'tact', title: t('Focus mode (double-click the title bar) · Esc to exit'), onclick: e => { e.stopPropagation(); toggleFocus(r.name); } }, '⤢');
@@ -644,7 +671,7 @@ function ensureTerm(r) {
 }
 function updateTermBar(r) {
   const tm = terms[r.name]; if (!tm) return;
-  tm.dot.className = 'dot ' + r.state; tm.sub.textContent = `${r.label || r.adapter}${r.account ? ' · ' + r.account : ''} · ${r.delivery === 'after_turn' ? t('after turn') : t('immediate')} · ${stateLabel(r)}`;
+  tm.dot.className = 'dot ' + r.state; setDotA11y(tm.dot, r.state); tm.sub.textContent = `${r.label || r.adapter}${r.account ? ' · ' + r.account : ''} · ${r.delivery === 'after_turn' ? t('after turn') : t('immediate')} · ${stateLabel(r)}`;
   tm.card.classList.toggle('restarting', r.state === 'restarting');
   tm.banner.classList.toggle('hidden', r.state !== 'attention');
   tm.banner.textContent = r.state !== 'attention' ? '' : r.attention === 'SUBMIT_UNCONFIRMED' ? t('The message was pasted but the CLI did not start (Enter seems ignored). Click this terminal and press Enter to submit it. Deliveries are held.') : `${t('Waiting for you:')} "${r.attention}" ${t('— answer it in this terminal. Deliveries are held.')}`;
@@ -672,8 +699,10 @@ async function init() {
   setLang(LANG);
   $('btnLang').onclick = () => setLang(LANG === 'zh' ? 'en' : 'zh', rerender);
   wireSide(); wirePanel(); wireStage();
+  $('toast').setAttribute('role', 'status'); $('toast').setAttribute('aria-live', 'polite');
   $('loginClose').onclick = closeLogin;
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeCtx(); if ($('gbSheet').classList.contains('show')) $('gbSheet').classList.remove('show'); else if ($('sheet').classList.contains('show')) $('sheet').classList.remove('show'); else closePop(); } });
+  document.addEventListener('keydown', e => { if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey && !(e.target.closest && e.target.closest('input,textarea,select,[contenteditable],.xterm'))) { e.preventDefault(); showShortcuts(); return; } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { const dyn = [...document.querySelectorAll('.sheet-bg.dyn.show')].pop(); if (dyn) { dyn._close(null); return; } closeCtx(); if ($('gbSheet').classList.contains('show')) $('gbSheet').classList.remove('show'); else if ($('sheet').classList.contains('show')) $('sheet').classList.remove('show'); else closePop(); } });
   // Outside click closes the popover, except on its anchors (role list, Dock, rail, placeholders,
   // title bars), dialogs, and any scrollbar (pointer outside the element's client area).
   const onScrollbar = e => { const x = e.target; if (!(x instanceof Element) || x === document.documentElement) return false; return (x.clientWidth && e.offsetX > x.clientWidth) || (x.clientHeight && e.offsetY > x.clientHeight); };
@@ -692,26 +721,28 @@ async function init() {
     addRole(); // same full form in both states; running adds "Save & start"
   };
   $('btnRescan').onclick = async () => { adapters = await api('GET', '/api/adapters'); renderAdapters(); renderRoles(); toast(t('Rescanned PATH')); };
-  $('btnAddCli').onclick = async () => { try { adapters = await api('POST', '/api/adapters', { label: $('mLabel').value, command: $('mCmd').value, args: $('mArgs').value, busy: $('mBusy').value ? [$('mBusy').value] : [], exit: $('mExit').value }); renderAdapters(); toast(t('CLI added')); $('manualCli').open = false; } catch (e) { toast(e.message); } };
+  $('btnAddCli').onclick = async () => { try { adapters = await api('POST', '/api/adapters', { label: $('mLabel').value, command: $('mCmd').value, args: $('mArgs').value, busy: $('mBusy').value ? [$('mBusy').value] : [], exit: $('mExit').value }); renderAdapters(); toast(t('CLI added')); $('manualCli').open = false; } catch (e) { toast(e.message, 'error'); } };
   $('btnSavePreset').onclick = async () => { const n = $('presetName').value.trim(); if (!n) return toast(t('Enter a preset name')); await api('POST', '/api/presets', { name: n, config: launchConfig() }); await loadPresets(); toast(`${t('Saved')} "${n}"`); };
   $('btnLoadPreset').onclick = () => { const p = (loadPresets.data || {})[$('presetSel').value]; if (p) { applyConfig(p); toast(t('Preset loaded')); } };
   $('btnDelPreset').onclick = async () => { const n = $('presetSel').value; if (!n) return; await api('DELETE', '/api/presets', { name: n }); await loadPresets(); toast(t('Preset deleted')); };
   $('btnStart').onclick = async () => { const c = launchConfig(); localStorage.tbLast = JSON.stringify(c); $('btnStart').disabled = true;
     const dup = duplicateAccounts(c.roles);
-    if (dup.length) { if (!confirm(`${t('These roles use the same CLI with the same account and will share one login and session state:')}\n${dup.join('\n')}\n\n${t('Start anyway?')}`)) { renderFoot(); return; } c.allowDuplicateAccounts = true; }
-    try { status = await api('POST', '/api/start', { ...c, globalBriefing: gbText(), lang: LANG }); events = status.events || []; selIdx = 0; closePop(); ui = await api('GET', '/api/ui-state').catch(() => ui); renderStatus(); } catch (e) { toast(e.message); } finally { renderFoot(); } };
+    if (dup.length) { // UI P1 #15: in-app confirm instead of the native dialog
+      const a = await dynSheet(t('These roles use the same CLI with the same account and will share one login and session state:'), el('div', { class: 'ask-list' }, dup.map(d => el('span', { class: 'wchip' }, d))), [[t('Start anyway'), 'ok', 'btn'], [t('Change accounts'), 'acct', 'btn plain'], [t('Cancel'), null, 'link']]);
+      if (a !== 'ok') { renderFoot(); if (a === 'acct') showAccounts(); return; } c.allowDuplicateAccounts = true; }
+    try { status = await api('POST', '/api/start', { ...c, globalBriefing: gbText(), lang: LANG }); events = status.events || []; selIdx = 0; closePop(); ui = await api('GET', '/api/ui-state').catch(() => ui); renderStatus(); } catch (e) { toast(e.message, 'error'); } finally { renderFoot(); } };
   $('btnStop').onclick = async () => { if (!confirm(t('Stop the bridge and exit all CLIs?'))) return; $('btnStop').disabled = true; try { await api('POST', '/api/stop'); } finally { $('btnStop').disabled = false; } for (const n of Object.keys(terms)) { terms[n].card.remove(); terms[n].term.dispose(); delete terms[n]; } status = { running: false }; selIdx = 0; closePop(); renderStatus(); };
   $('swPause').onclick = async () => { status = await api('POST', '/api/pause', { paused: !sw($('swPause')) }); renderStatus(); };
   $('btnNew').onclick = () => { $('sheet').classList.add('show'); $('sMsg').focus(); };
   $('btnCancel').onclick = () => $('sheet').classList.remove('show');
   $('sheet').onclick = e => { if (e.target === $('sheet')) $('sheet').classList.remove('show'); };
   $('sReply').onclick = () => sw($('sReply'), !sw($('sReply')));
-  $('btnSend').onclick = async () => { try { const r = await api('POST', '/api/send', { from: $('sFrom').value, to: $('sTo').value, message: $('sMsg').value, reply_required: sw($('sReply')), refs: $('sRefs').value.split(',').map(s => s.trim()).filter(Boolean) }); $('sheet').classList.remove('show'); $('sMsg').value = ''; toast(r.status === 'QUEUED' ? t('Message queued') : tErr(r.status)); } catch (e) { toast(e.message); } };
+  $('btnSend').onclick = async () => { try { const r = await api('POST', '/api/send', { from: $('sFrom').value, to: $('sTo').value, message: $('sMsg').value, reply_required: sw($('sReply')), refs: $('sRefs').value.split(',').map(s => s.trim()).filter(Boolean) }); $('sheet').classList.remove('show'); $('sMsg').value = ''; toast(r.status === 'QUEUED' ? t('Message queued') : tErr(r.status)); } catch (e) { toast(e.message, 'error'); } };
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { for (const x of Object.values(terms)) x.term.options.theme = termTheme(); });
   try { status = await api('GET', '/api/status'); if (status.running) events = status.events || []; renderStatus(); } catch { }
   connect();
 }
-init().catch(e => toast(e.message));
+init().catch(e => toast(e.message, 'error'));
 
 // Running count = live roles (not user-stopped / exited); total shown only when they differ.
 function roleCountText(list) {

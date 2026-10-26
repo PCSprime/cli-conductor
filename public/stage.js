@@ -30,7 +30,7 @@ const baseFont = () => innerWidth >= 3200 ? 15 : innerWidth >= 2400 ? 14 : inner
 let termFont = baseFont();
 function charW(fs = termFont) {
   charW.v = charW.v || {}; if (charW.v[fs]) return charW.v[fs];
-  const sp = document.createElement('span'); sp.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${fs}px "SF Mono","Cascadia Mono",Consolas,monospace`;
+  const sp = document.createElement('span'); sp.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${fs}px "SF Mono","Cascadia Mono",Consolas,"Sarasa Mono SC","Microsoft YaHei Mono",monospace`;
   sp.textContent = 'x'.repeat(100); document.body.append(sp); const w = sp.getBoundingClientRect().width / 100 || fs * .6; sp.remove(); return (charW.v[fs] = w);
 }
 // Columns a terminal gets with n cards side by side (card padding 16px + xterm scrollbar ~14px).
@@ -307,7 +307,7 @@ async function startRole(name) {
   }
   // Configured in the roster but never spawned this run → hot-add from config.
   const cfg = (typeof roles !== 'undefined' ? roles : []).find(r => r.name === name);
-  if (!cfg) return toast(`${name}: ${t('ROLE_UNKNOWN')}`);
+  if (!cfg) return toast(`${name}: ${tErr('ROLE_UNKNOWN')}`, 'error');
   try {
     const body = {
       name: cfg.name, type: cfg.type || 'agent', adapter: cfg.adapter, delivery: cfg.delivery,
@@ -667,7 +667,7 @@ async function openLogin(cli, name) {
   $('loginSheet').classList.add('show');
   const host = $('loginTermBox'); host.innerHTML = '';
   if (loginTerm) loginTerm.term.dispose();
-  const term = new Terminal({ fontFamily: '"SF Mono","Cascadia Mono",Consolas,monospace', fontSize: 12.5, lineHeight: 1.15, theme: termTheme(), scrollback: 2000 });
+  const term = new Terminal({ fontFamily: '"SF Mono","Cascadia Mono",Consolas,"Sarasa Mono SC","Microsoft YaHei Mono",monospace', fontSize: 12.5, lineHeight: 1.2, theme: termTheme(), scrollback: 2000 });
   const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(host);
   term.onData(d => ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'input', role: loginId, data: d })));
   loginTerm = { term, fit: () => { try { fit.fit(); ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'resize', role: loginId, cols: term.cols, rows: term.rows })); } catch { } } };

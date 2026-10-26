@@ -179,6 +179,8 @@ function renderRoles() {
         el('div', { style: 'min-width:0' }, el('div', { class: 'nm' }, r.name || '—'), el('div', { class: 'v' }, sub))),
       trail));
   });
+  // UI P2: empty state
+  if (!list.length) box.append(el('div', { class: 'row empty' }, el('span', { class: 'v' }, t('No roles yet.')), el('button', { class: 'link', type: 'button', onclick: () => $('btnAddRole').click() }, '＋ ' + t('Add Role'))));
   // Always show add control (hot-add while running via /api/add-role).
   $('btnAddRole').classList.remove('hidden');
   $('btnAddRole').textContent = t('＋ Add Role');
@@ -489,7 +491,7 @@ function renderAdapters() {
   const det = adapters.filter(a => a.path && !hid.has(a.id)), other = adapters.filter(a => !a.path && !hid.has(a.id)), hidden = adapters.filter(a => hid.has(a.id));
   const box = $('adapters'); box.innerHTML = '';
   for (const a of det) box.append(cliRow(a, 'detected'));
-  if (!det.length) box.append(el('div', { class: 'row' }, el('span', { class: 'v' }, t('No CLI detected on PATH'))));
+  if (!det.length) box.append(el('div', { class: 'row empty' }, el('span', { class: 'v' }, t('No CLI detected on PATH')), el('button', { class: 'link', type: 'button', onclick: () => $('btnRescan').click() }, t('Rescan')))); // UI P2
   $('otherTitle').textContent = `${t('Other supported CLIs')} (${other.length})`; $('otherList').innerHTML = ''; for (const a of other) $('otherList').append(cliRow(a, 'other'));
   $('otherClis').classList.toggle('hidden', !other.length);
   $('hiddenTitle').textContent = `${t('Hidden')} ${hidden.length}`; $('hiddenList').innerHTML = ''; for (const a of hidden) $('hiddenList').append(cliRow(a, 'hidden'));
@@ -596,7 +598,7 @@ function renderFeed() {
   const sig = JSON.stringify([LANG, shown.map(e => [e.ts, e.kind, eventText(e)])]); // UI P0: rebuild only on change
   if (box.dataset.sig === sig && box.childElementCount) return;
   box.dataset.sig = sig; box.innerHTML = '';
-  if (!shown.length) box.append(el('div', { class: 'row' }, el('span', { class: 'v' }, t('No activity yet'))));
+  if (!shown.length) box.append(el('div', { class: 'row empty stack' }, el('span', {}, t('No activity yet')), el('span', { class: 'v wrap' }, t('Messages between roles appear here once dispatch is running.')))); // UI P2
   for (const e of shown) box.append(el('div', { class: 'row' }, el('div', { class: 'ev' }, el('span', { class: 'time' }, fmtTime(e.ts)), el('span', { class: 'tag2 ' + e.kind }, t(e.kind.replace(/_/g, ' ').toLowerCase())), el('span', { class: 'txt', title: eventText(e) }, eventText(e)))));
 }
 function setRunningLock(running) {
@@ -658,7 +660,7 @@ function ensureTerm(r) {
   const focusBtn = el('button', { class: 'tact', title: t('Focus mode (double-click the title bar) · Esc to exit'), onclick: e => { e.stopPropagation(); toggleFocus(r.name); } }, '⤢');
   const card = el('div', { class: 'term', 'data-role': r.name }, el('div', { class: 'tbar', onclick: () => { select(idx()); touch(r.name); }, ondblclick: () => toggleFocus(r.name) }, el('div', { class: 't' }, dot, r.name, sub), el('div', { class: 'tacts' }, rst, focusBtn)), banner, body);
   $('parking').append(card);
-  const term = new Terminal({ fontFamily: '"SF Mono","Cascadia Mono",Consolas,monospace', fontSize: termFont, lineHeight: 1.15, cursorBlink: true, theme: termTheme(), scrollback: 3000, allowProposedApi: true });
+  const term = new Terminal({ fontFamily: '"SF Mono","Cascadia Mono",Consolas,"Sarasa Mono SC","Microsoft YaHei Mono",monospace', fontSize: termFont, lineHeight: 1.2, cursorBlink: true, theme: termTheme(), scrollback: 3000, allowProposedApi: true });
   const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(wrap);
   term.onData(d => ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'input', role: r.name, data: d })));
   body.addEventListener('mousedown', () => { touch(r.name); const i = idx(); if (i !== selIdx) select(i); });
@@ -720,7 +722,9 @@ async function init() {
   $('btnAddRole').onclick = () => {
     addRole(); // same full form in both states; running adds "Save & start"
   };
-  $('btnRescan').onclick = async () => { adapters = await api('GET', '/api/adapters'); renderAdapters(); renderRoles(); toast(t('Rescanned PATH')); };
+  // UI P2: rescan shows a busy label (CSS swap keeps the translatable text node intact) and is not re-entrant.
+  $('btnRescan').onclick = async () => { const b = $('btnRescan'); if (b.classList.contains('busy')) return; b.dataset.busy = t('Scanning…'); b.classList.add('busy'); b.disabled = true;
+    try { adapters = await api('GET', '/api/adapters'); renderAdapters(); renderRoles(); toast(t('Rescanned PATH'), 'ok'); } catch (e) { toast(e.message, 'error'); } finally { b.classList.remove('busy'); b.disabled = false; } };
   $('btnAddCli').onclick = async () => { try { adapters = await api('POST', '/api/adapters', { label: $('mLabel').value, command: $('mCmd').value, args: $('mArgs').value, busy: $('mBusy').value ? [$('mBusy').value] : [], exit: $('mExit').value }); renderAdapters(); toast(t('CLI added')); $('manualCli').open = false; } catch (e) { toast(e.message, 'error'); } };
   $('btnSavePreset').onclick = async () => { const n = $('presetName').value.trim(); if (!n) return toast(t('Enter a preset name')); await api('POST', '/api/presets', { name: n, config: launchConfig() }); await loadPresets(); toast(`${t('Saved')} "${n}"`); };
   $('btnLoadPreset').onclick = () => { const p = (loadPresets.data || {})[$('presetSel').value]; if (p) { applyConfig(p); toast(t('Preset loaded')); } };

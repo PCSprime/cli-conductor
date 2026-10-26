@@ -201,7 +201,7 @@ body.dragging .stage .term .tbody{opacity:.75}
 .dc.onstage{opacity:.6}.dc.onstage::after{content:attr(data-onstage);position:absolute;left:10px;bottom:5px;font-size:9.5px;color:var(--blue)}
 .dc.arch{background:transparent;border:1px dashed var(--sep);box-shadow:none;cursor:default}
 .dc .mute{font-size:10px}
-.dc.glow{box-shadow:0 0 0 2px var(--blue),0 0 22px 4px rgba(0,122,255,.45),var(--sh2);animation:bounce .9s cubic-bezier(.34,1.45,.5,1) 2}
+.dc.glow{box-shadow:0 0 0 2px var(--blue),0 0 12px 2px rgba(0,122,255,.4),var(--sh2);animation:bounce .9s cubic-bezier(.34,1.45,.5,1) 2}
 @keyframes bounce{0%,100%{transform:translateY(0)}35%{transform:translateY(-9px)}60%{transform:translateY(-2px)}}
 .badge{position:absolute;top:-7px;right:-7px;background:var(--red);color:#fff;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:grid;place-items:center;padding:0 5px;box-shadow:0 2px 6px rgba(255,59,48,.4)}
 .badge.muted{background:var(--gray);box-shadow:none}
@@ -460,3 +460,8 @@ h1,.sheet h2{font-size:var(--fs-title);font-weight:600}
 /* #14 visible keyboard focus everywhere */
 :where(button,[role=button],summary,.rrow,.chip,a,[tabindex]):focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .rrow:focus-visible{outline-offset:-2px;border-radius:10px}
+
+/* ---------- UI P2 (2026-10-26) ---------- */
+.row.empty{min-height:40px}.row.empty .v.wrap{white-space:normal}
+#btnRescan.busy{font-size:0;opacity:.7;cursor:progress}#btnRescan.busy::after{content:attr(data-busy);font-size:var(--fs-body)}
+@media (prefers-reduced-transparency:reduce){.ctx{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--card)}.toast{backdrop-filter:none;-webkit-backdrop-filter:none;background:#1e1e20}}

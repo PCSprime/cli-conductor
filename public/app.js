@@ -113,10 +113,15 @@ function select(i, open) {
 function renderRoles() {
   const side = document.querySelector('.side');
   const keepScroll = side ? side.scrollTop : 0;
-  const box = $('roles'); box.innerHTML = '';
+  const box = $('roles');
   const running = status.running;
   const list = rosterList();
   if (selIdx >= list.length) selIdx = Math.max(0, list.length - 1);
+  // UI P0: skip the rebuild when nothing shown in the list changed (status ticks no longer reset the list mid-scroll).
+  const liveSet = running ? (status.roles || []).filter(x => !x.stopped).map(x => x.name).join('|') : '';
+  const sig = JSON.stringify([LANG, running, selIdx, liveSet, list.map((r, i) => [r.name, r.type, r.enabled, r.state, r.stopped, r.notInRun, r.label, r.adapter, roleColor(r, i), running ? '' : roleSub(r)])]);
+  if (box.dataset.sig === sig && box.childElementCount) { renderFoot(); renderSideRail(); return; }
+  box.dataset.sig = sig; box.innerHTML = '';
   list.forEach((r, i) => {
     const sel = i === selIdx;
     const live = running && (status.roles || []).some(x => x.name === r.name && !x.stopped);
@@ -138,7 +143,7 @@ function renderRoles() {
     }
     const trail = running
       ? el('div', { class: 'k powerk' }, power || '', el('span', { class: 'dot ' + (r.type === 'observer' ? 'archive' : (stopped ? 'offline' : r.state)) }))
-      : el('div', { class: 'k' }, el('span', { class: 'gear' }, '›'), el('span', { class: 'dot ' + (r.enabled ? 'idle' : 'offline') }));
+      : el('div', { class: 'k' }, el('span', { class: 'gear' }, '›'), el('span', { class: 'dot ' + (r.enabled ? 'ready' : 'offline') }));
     const sub = running
       ? (r.type === 'observer' ? t('archive · inbox only') : (stopped ? (r.notInRun ? t('not started') : t('stopped')) : `${r.label || r.adapter} · ${stateText(r.state)}`))
       : roleSub(r);
@@ -518,9 +523,11 @@ function buildPreDock(box) {
     if (r === null) { if (on.length && rest.length) box.append(el('div', { class: 'dsep' })); return; }
     const i = roles.indexOf(r), k = on.indexOf(r);
     const arch = r.type === 'observer', isOn = k >= 0;
-    const c = el('div', { class: 'dc' + (arch ? ' arch' : '') + (isOn ? ' onstage' : '') + (i === selIdx ? ' cur' : ''), draggable: arch ? 'false' : 'true', 'data-onstage': t('On stage'), 'data-i': i,
+    // UI P0b: the "$ command" line is the single CLI indicator; full CLI name + delivery mode live in the tooltip.
+    const tip = arch ? `${r.name || '—'} · ${t('archive only')}` : `${r.name || '—'} · ${adapterLabel(r.adapter)} · ${r.delivery === 'after_turn' ? t('after turn') : t('immediate')}\n${cmdLine(r)}`;
+    const c = el('div', { class: 'dc' + (arch ? ' arch' : '') + (isOn ? ' onstage' : '') + (i === selIdx ? ' cur' : ''), title: tip, draggable: arch ? 'false' : 'true', 'data-onstage': t('On stage'), 'data-i': i,
       onclick: e => { const c = e.currentTarget; if (arch) return select(i, c); if (popOpen && selIdx === i) return closePop(); const was = popOpen; preSwap(r); if (was) { selIdx = i; openPop(document.querySelector(`#dock .dc[data-i="${i}"]`)); } }, ondragstart: e => { e.dataTransfer.setData('text/tb-pre', String(i)); document.body.classList.add('dragging'); }, ondragend: () => document.body.classList.remove('dragging') },
-      el('div', { class: 'n' }, el('span', { class: 'slotb' }, k >= 0 ? SLOT_MARK[k] : ''), el('span', { class: 'dot ' + (arch ? 'archive' : 'offline') }), el('b', {}, r.name || '—'), el('em', {}, arch ? t('archive only') : `${adapterLabel(r.adapter)} · ${r.delivery === 'after_turn' ? t('after turn') : t('immediate')}`)),
+      el('div', { class: 'n' }, el('span', { class: 'slotb' }, k >= 0 ? SLOT_MARK[k] : ''), el('span', { class: 'dot ' + (arch ? 'archive' : 'offline') }), el('b', {}, r.name || '—')),
       el('div', { class: 'l' }, arch ? t('archive · inbox only') : cmdLine(r)), el('div', { class: 'key' }, i < 9 && !arch ? `Ctrl+${i + 1}` : ''));
     box.append(c);
   });
@@ -557,8 +564,11 @@ function eventText(e) {
   return [route, extra].filter(Boolean).join(' · ');
 }
 function renderFeed() {
-  const box = $('feed'); box.innerHTML = '';
+  const box = $('feed');
   const shown = events.filter(e => e.kind !== 'UNCERTAIN').slice(-80).reverse();
+  const sig = JSON.stringify([LANG, shown.map(e => [e.ts, e.kind, eventText(e)])]); // UI P0: rebuild only on change
+  if (box.dataset.sig === sig && box.childElementCount) return;
+  box.dataset.sig = sig; box.innerHTML = '';
   if (!shown.length) box.append(el('div', { class: 'row' }, el('span', { class: 'v' }, t('No activity yet'))));
   for (const e of shown) box.append(el('div', { class: 'row' }, el('div', { class: 'ev' }, el('span', { class: 'time' }, fmtTime(e.ts)), el('span', { class: 'tag2 ' + e.kind }, t(e.kind.replace(/_/g, ' ').toLowerCase())), el('span', { class: 'txt', title: eventText(e) }, eventText(e)))));
 }
@@ -569,7 +579,9 @@ function setRunningLock(running) {
     e.disabled = running;
   }
 }
-function renderStatus() {
+// UI P0: keep the right panel's scroll position across status re-renders.
+function renderStatus() { const pb = document.querySelector('.pbody'), st = pb ? pb.scrollTop : 0; renderStatusCore(); if (pb && pb.scrollTop !== st) pb.scrollTop = st; }
+function renderStatusCore() {
   const running = status.running;
   for (const id of ['btnStop', 'btnNew', 'pauseWrap', 'runInfo']) $(id).classList.toggle('hidden', !running);
   $('btnStart').classList.toggle('hidden', running);
@@ -585,14 +597,18 @@ function renderStatus() {
   $('pill').innerHTML = `<span class="dot ${b.paused ? 'busy' : 'idle'}"></span>${b.paused ? t('Paused') : t('Bridge running')} · ${roleCountText(roleList)} · ${b.counts.held} ${t('held')}${busy ? ` · ${busy} ${t('working')}` : ''} · ${b.waitTurnEnd ? t('wait for turn end: all roles') : t('wait for turn end: per role')}`;
   renderRoles(); renderAdapters(); if (!renderStatus.ws) { renderWorkspace(); renderStatus.ws = 1; }
   sw($('swPause'), b.paused);
-  const sl = $('statusList'); sl.innerHTML = '';
+  const sl = $('statusList'), slSig = JSON.stringify([LANG, b.counts, b.held.slice(0, 5).map(h => [h.to, h.reason])]);
+  if (sl.dataset.sig !== slSig) { sl.dataset.sig = slSig; sl.innerHTML = '';
   for (const [k, v] of Object.entries(b.counts)) sl.append(el('div', { class: 'stat' }, el('b', {}, v), el('span', {}, LANG === 'zh' && ZH[k] ? ZH[k] : k[0].toUpperCase() + k.slice(1))));
   for (const h of b.held.slice(0, 5)) sl.append(el('div', { class: 'row' }, el('span', { class: 'v' }, `${t('held')} → ${h.to}`), el('span', { class: 'v' }, t(h.reason))));
-  const rr = $('roleRun'); rr.innerHTML = '';
+  }
+  const rr = $('roleRun'), rrSig = JSON.stringify([LANG, roleList.map(r => [r.name, r.type, r.state, r.pid, r.turns])]);
+  if (rr.dataset.sig !== rrSig) { rr.dataset.sig = rrSig; rr.innerHTML = '';
   for (const r of roleList) rr.append(el('div', { class: 'row' }, el('div', { class: 'k' }, el('span', { class: 'dot ' + r.state }), r.name), el('span', { class: 'v' }, r.type === 'observer' ? t('inbox only') : `${stateText(r.state)} · PID ${r.pid || '—'} · ${t('turn')} ${r.turns || 0}`)));
+  }
   $('cfgInfo').textContent = `${t('Agents reply with')} tools/cli_conductor_send.ps1 -ConfigPath ${b.configPath}`;
   if ($('dock').dataset.mode !== 'run') { $('dock').innerHTML = ''; $('dock').dataset.mode = 'run'; dockCards = {}; $('stage').innerHTML = ''; }
-  $('layout').classList.add('running'); $('terms').innerHTML = ''; $('terms').classList.add('hidden'); for (const id of ['stage', 'dock']) $(id).classList.remove('hidden');
+  $('layout').classList.add('running'); if ($('terms').firstChild) $('terms').innerHTML = ''; $('terms').classList.add('hidden'); for (const id of ['stage', 'dock']) $(id).classList.remove('hidden');
   for (const r of roleList) if (r.type !== 'observer') ensureTerm(r); else if (terms[r.name]) { terms[r.name].card.remove(); delete terms[r.name]; }
   for (const n of Object.keys(terms)) if (!roleList.some(r => r.name === n)) { terms[n].card.remove(); terms[n].term.dispose(); delete terms[n]; }
   for (const r of roleList) updateTermBar(r);

@@ -4,6 +4,30 @@ All notable changes are documented here. The format follows [Keep a Changelog](h
 
 ## [Unreleased]
 
+UI polish pass (front-end only; no protocol or bridge changes). / 界面优化（仅前端，不改协议与调度逻辑）。
+
+### Fixed
+
+- Scroll flicker on Windows Chrome/Edge: removed `backdrop-filter` from scrolling panels, header, dock, popovers and sheets, and dropped `background-attachment: fixed`. / 修复 Windows Chrome/Edge 滚动闪烁：滚动区、顶栏、Dock、弹窗去掉毛玻璃，取消固定背景。
+- Status dots are aligned in a fixed trailing slot; enabled-but-not-started roles show a hollow ring instead of green. / 状态灯对齐；已启用未启动的角色显示空心圈而非绿色。
+- Lists (roles, feed, status) are only rebuilt when their data changes, keeping scroll position. / 列表仅在数据变化时重建，保持滚动位置。
+- Untranslated account hint and `ROLE_UNKNOWN` toast now show in Chinese. / 账号说明与 ROLE_UNKNOWN 提示中文化。
+
+### Added
+
+- Status dots use shape + tooltip/ARIA label, not color alone (ring, spinning arc, exclamation). / 状态灯增加形状与文字提示，不再只靠颜色。
+- In-app confirm sheet for shared-account start, structured duplicate-account banner, error/ok toasts (`aria-live`). / 同账号启动改为页内确认框，同账号提示条，toast 分级。
+- `?` keyboard-shortcuts sheet, `:focus-visible` rings and keyboard-selectable role rows. / `?` 快捷键卡、键盘焦点环、角色行可键盘选择。
+- Empty states with actions (no roles / no CLI detected / no activity) and a "Scanning…" state for Rescan. / 空状态提示与操作按钮，重新扫描显示“扫描中”。
+- Terminals use the WebGL renderer (`@xterm/addon-webgl`), falling back to DOM automatically; opt out with `localStorage.tbWebgl = "0"`. / 终端启用 WebGL 渲染，失败自动回退。
+- Role rows show a second line: CLI · account · delivery · turns. / 角色行第二行显示 CLI·账号·投递·回合。
+
+### Changed
+
+- Unified type scale and a 12-step neutral color scale (light/dark) with higher-contrast secondary text. / 统一字号层级与 12 级灰阶配色，次要文字对比度提高。
+- Dock cards no longer repeat the CLI name under the role name; glow toned down. / Dock 卡片去掉重复 CLI 名，发光收敛。
+- Sidebar auto-collapses to a rail below 1024px on first visit; `prefers-reduced-transparency` respected; CJK monospace fallbacks and line height 1.2 for terminals. / 窄屏自动折叠侧栏，适配减少透明度，终端中文等宽字体回退。
+
 ## [0.2.0] - 2026-10-21
 
 ### Added

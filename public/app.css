@@ -5,7 +5,7 @@
 --sh1:0 0 0 .5px rgba(255,255,255,.07),0 8px 24px rgba(0,0,0,.35);--sh2:0 0 0 .5px rgba(255,255,255,.09),0 18px 44px rgba(0,0,0,.5);--sh3:0 0 0 .5px rgba(255,255,255,.12),0 30px 80px rgba(0,0,0,.7);
 --wall:radial-gradient(1200px 700px at 8% -10%,#1b2650 0,transparent 60%),radial-gradient(900px 600px at 100% 110%,#43193a 0,transparent 55%),#0b0b0d}}
 /* UI P0: solid surfaces for persistent/scrolling areas + type scale */
-:root{--solidbg:rgba(255,255,255,.92);--footsh:0 -8px 16px -8px rgba(0,0,0,.08);--text2:#3a3a3c;--fs-title:16px;--fs-section:13px;--fs-name:14px;--fs-body:13px;--fs-meta:12px;--fs-tag:11px;--fs-num:20px}
+:root{--solidbg:rgba(255,255,255,.92);--footsh:0 -8px 16px -8px rgba(0,0,0,.08);--text2:#3a3a3c;--fs-title:16px;--fs-section:14px;--fs-name:14px;--fs-body:13px;--fs-meta:12px;--fs-tag:11px;--fs-num:20px}
 @media (prefers-color-scheme:dark){:root{--solidbg:rgba(28,28,30,.94);--footsh:0 -8px 16px -8px rgba(0,0,0,.45);--text2:#d1d1d6}}
 /* UI #18: Radix-style 12-step neutral scale (slate). 1-2 backgrounds, 3-5 component bg (normal/hover/pressed),
    6-8 borders, 11 secondary text, 12 primary text. Alpha steps keep translucent fills translucent. Accents unchanged. */
@@ -32,12 +32,12 @@ button{font:inherit}
 .btn.plain{background:var(--seg);color:var(--blue);box-shadow:none}.btn.danger-fill{background:var(--red)}.btn.sm{font-size:12px;padding:4px 12px}
 .btn.big{width:100%;padding:10px;font-size:15px;border-radius:12px}
 .icon-btn{border:0;background:transparent;color:var(--sub);font-size:17px;width:30px;height:30px;border-radius:8px;cursor:pointer;transition:background .15s,transform .14s}.icon-btn:hover{background:var(--seg)}
-.lang{display:flex;background:var(--seg);border-radius:8px;padding:2px;font-size:12px;cursor:pointer}.lang span{padding:3px 9px;border-radius:6px;color:var(--sub);transition:all .2s}.lang span.on{background:var(--segon);color:var(--text);font-weight:600;box-shadow:0 1px 1px rgba(0,0,0,.04),0 2px 6px rgba(0,0,0,.12)}
+.lang{display:flex;background:var(--seg);border-radius:8px;padding:2px;font-size:12px;cursor:pointer}.lang span{padding:3px 9px;border-radius:6px;color:var(--sub);transition:background .2s,color .2s,box-shadow .2s}.lang span.on{background:var(--segon);color:var(--text);font-weight:600;box-shadow:0 1px 1px rgba(0,0,0,.04),0 2px 6px rgba(0,0,0,.12)}
 .link{border:0;background:none;color:var(--blue);font-size:12.5px;cursor:pointer;padding:0 2px;white-space:nowrap;text-transform:none;letter-spacing:0;font-weight:500;transition:opacity .15s,transform .14s}.link.red{color:var(--red)}.link:hover{opacity:.7}.link:disabled{opacity:.35;cursor:default}
 .layout{flex:1;min-height:0;display:grid;--sw:300px;--pw:316px;grid-template-columns:var(--sw) minmax(0,1fr) var(--pw);gap:12px;padding:12px}
 .layout{position:relative}.layout.pcollapsed{grid-template-columns:var(--sw) minmax(0,1fr) calc(46px * var(--uiz,1))}.layout.scollapsed{grid-template-columns:calc(56px * var(--uiz,1)) minmax(0,1fr) var(--pw)}.layout.scollapsed.pcollapsed{grid-template-columns:calc(56px * var(--uiz,1)) minmax(0,1fr) calc(46px * var(--uiz,1))}
 .side,.panel{overflow-y:auto;padding:10px 10px 18px;border-radius:18px;box-shadow:var(--sh2);scrollbar-width:thin;min-height:0}
-.center{min-width:0;min-height:0;overflow:auto;transition:padding-left .32s cubic-bezier(.2,.8,.2,1)}
+.center{min-width:0;min-height:0;overflow:auto}
 .label{display:flex;align-items:center;justify-content:space-between;font-size:var(--fs-section);font-weight:600;color:var(--text2);margin:16px 8px 6px}
 .side>.label:first-child,.panel .label:first-child,.pop .label:first-child,#runInfo>.label:first-child{margin-top:2px}
 .foot{font-size:11.5px;color:var(--sub);margin:6px 8px 0;line-height:1.4}.foot.mono{font-family:"SF Mono","Cascadia Mono",Consolas,monospace;font-size:10.5px;word-break:break-all}
@@ -116,7 +116,7 @@ details>div{animation:drop .25s ease}@keyframes drop{from{opacity:0;transform:tr
 .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center;z-index:20;opacity:0;pointer-events:none;transition:opacity .2s}.sheet-bg.show{opacity:1;pointer-events:auto}
 .sheet{background:var(--card);border-radius:18px;padding:16px;width:min(520px,92vw);box-shadow:var(--sh3);transform:scale(.96);transition:transform .3s cubic-bezier(.2,.8,.2,1)}.sheet-bg.show .sheet{transform:none}
 .sheet h2{font-size:16px;margin:0 4px 12px;display:flex;justify-content:space-between;align-items:center}
-.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:rgba(30,30,32,.9);backdrop-filter:blur(12px);color:#fff;font-size:13px;padding:9px 16px;border-radius:999px;opacity:0;pointer-events:none;transition:.25s;z-index:30;max-width:80vw}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);background:rgba(30,30,32,.9);backdrop-filter:blur(12px);color:#fff;font-size:13px;padding:9px 16px;border-radius:999px;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:30;max-width:80vw}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 @media (max-width:1180px){.brand{width:236px}}
@@ -476,3 +476,86 @@ h1,.sheet h2{font-size:var(--fs-title);font-weight:600}
 
 /* ---------- UI #18/#19 (2026-10-26) ---------- */
 .rrow:hover{background:var(--hover)}.rrow.sel{background:var(--sel)}.rrow:active{background:var(--pressed)}.rrow.sel:active{background:var(--sel)}
+
+/* 防闪烁：终端滚动条常显、去掉淡入淡出；两侧把手用整数像素定位并独立成层 */
+.xterm .xterm-scrollable-element>.scrollbar{transition:none!important}
+.xterm .xterm-scrollable-element>.scrollbar.invisible{opacity:1!important;pointer-events:auto!important}
+/* 没有可滚的历史（备用屏/不满一屏）时隐藏滚动条，避免显示一整条假滑块 */
+.term.noscroll .xterm .xterm-scrollable-element>.scrollbar{opacity:0!important;pointer-events:none!important}
+.xterm .xterm-scrollable-element>.shadow{display:none!important}
+
+/* ---------- 显示层重构 (2026-10-29) ---------- */
+/* 1) 把手：放在网格间隙里（12px 宽 = 间隙宽），整数像素定位，不用 transform，不单独成层；右把手已移出 #panel */
+.layout{--pcw:var(--pw)}
+.layout.pcollapsed{--pcw:calc(46px * var(--uiz,1))}
+.shandle,.phandle{top:calc(50% - 32px);transform:none;z-index:6}
+.phandle{left:auto;right:calc(var(--pcw) + 12px)}
+body.resizing,body.resizing *{cursor:col-resize!important}
+body.resizing .term .xterm{pointer-events:none}
+/* 2) 封装：终端卡片、Dock、侧栏各自独立绘制，内部重绘不波及外面（阴影/描边是元素自身绘制，不会被裁掉） */
+.term{contain:layout paint style;isolation:isolate}
+.tbody{contain:layout paint style}
+.dock{contain:layout paint style}
+.side,.panel{contain:layout paint style}
+.panel{overflow:hidden}
+/* 3) 忙碌转圈：改成只重绘的圆环（不创建合成层，不再把周围元素顶成 Overlap 层），每秒 16 步 */
+@property --tbspin{syntax:'<angle>';inherits:false;initial-value:0deg}
+@keyframes tbspin{to{--tbspin:360deg}}
+.dot.busy::after,.dot.starting::after{border:0;background:conic-gradient(from calc(var(--tbspin) - 45deg),var(--orange) 0 90deg,rgba(255,149,0,.25) 90deg 360deg);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 1.5px),#000 calc(100% - 1.5px));mask:radial-gradient(farthest-side,transparent calc(100% - 1.5px),#000 calc(100% - 1.5px));animation:tbspin 1s steps(16) infinite}
+.dot.restarting,.ri.role .dot.restarting{border:0;background:conic-gradient(from calc(var(--tbspin) - 45deg),var(--orange) 0 90deg,rgba(255,149,0,.25) 90deg 360deg);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 2px));mask:radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 2px));animation:tbspin .8s steps(16) infinite}
+/* 4) 停止按钮的呼吸环：不再逐帧重绘 box-shadow，改成伪元素的 transform+opacity */
+.ri.go.stop{animation:none}
+.ri.go.stop::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:0 0 0 2.5px rgba(255,59,48,.3);opacity:0;pointer-events:none;animation:tbring 2.4s ease-out infinite}
+@keyframes tbring{0%{transform:scale(1);opacity:1}70%{transform:scale(1.32);opacity:0}100%{transform:scale(1.32);opacity:0}}
+.ri.go:disabled::after{animation:none;opacity:0}
+/* 5) Dock 卡片：角色名独占第一行，⋯ 自成右侧一列，不压内容；卡片等宽 */
+.dc{display:grid!important;grid-template-columns:minmax(0,1fr) 22px;grid-template-rows:20px auto auto 1fr;column-gap:4px;row-gap:2px!important;align-items:start}
+.dc>*{grid-column:1}
+.dc>.dc-more{grid-column:2;grid-row:1;margin:0!important;align-self:center}
+.dc>.badge{grid-column:auto}
+.dc-foot{align-self:end}
+.dc .n b{font-size:13.5px;font-weight:650}
+/* 6) 字体层级：分区标题（工作区/角色/状态…）加大加粗 */
+.label{font-weight:650;letter-spacing:.2px}
+/* 7) 动效：页面在后台时暂停所有装饰动画；系统“减少动态效果”时全部停 */
+html.tb-hidden *,html.tb-hidden *::before,html.tb-hidden *::after{animation-play-state:paused!important}
+@media (prefers-reduced-motion:reduce){.dot.busy::after,.dot.starting::after,.dot.restarting,.ri.go.stop::after{animation:none!important}}
+/* 8) 最高思考档的极光/流星：效果不变，只把绘制限制在按钮内 */
+.seg button.effort-top{contain:paint}
+.dc>.dc-foot{grid-row:4}
+/* ---------- 防闪烁 (2026-10-29 下午)：主区 WebGL 画布周围不再连带生成“重叠合成层” ----------
+   画布是独立合成层；凡是绘制顺序在它之后、可见范围（含阴影）又盖到它的元素，Chrome 都会被迫各自提升成层（Overlap），
+   画布每帧更新时这些层（把手、顶栏、Dock、右栏、相邻终端卡片）跟着重新合成，在本机核显上表现为终端四周闪烁。
+   1) 主区整体最后绘制（.center 本身 overflow:hidden，外观不变）：把手/顶栏/侧栏/右栏都排在画布之前，不再被提升。
+   2) 主区卡片和 Dock 的阴影收紧到不会伸进相邻画布（横向 <20px、向上 <10px），相邻卡片和 Dock 也不再被提升。 */
+:root{--sh-stage:0 0 0 .5px rgba(0,0,0,.06),0 2px 6px rgba(0,0,0,.06),0 14px 34px -12px rgba(0,0,0,.14);--sh-stage-sel:0 0 0 .5px rgba(0,0,0,.08),0 8px 24px -6px rgba(0,0,0,.14),0 22px 44px -18px rgba(0,0,0,.2)}
+@media (prefers-color-scheme:dark){:root{--sh-stage:0 0 0 .5px rgba(255,255,255,.09),0 16px 40px -14px rgba(0,0,0,.6);--sh-stage-sel:0 0 0 .5px rgba(255,255,255,.12),0 22px 48px -20px rgba(0,0,0,.75)}}
+.center{position:relative;z-index:11}
+.stage>.term{box-shadow:var(--sh-stage)}
+.stage>.term.sel{box-shadow:var(--sh-stage-sel)}
+.dock{box-shadow:var(--sh-stage)}
+/* 3) 停止按钮呼吸环改回只重绘的 box-shadow（每秒 10 步）：transform/opacity 动画会生成合成层，
+   Chrome 会把绘制顺序在它之后的元素（把手、主区、Dock…）都当作“可能重叠”而提升成层——3 栏时左侧收成图标栏，这个按钮正好在那里。 */
+.ri.go.stop::after{content:none;animation:none}
+.ri.go.stop{animation:runring 2.4s steps(24) infinite}
+.ri.go:disabled{animation:none}
+@media (prefers-reduced-motion:reduce){.ri.go.stop{animation:none!important}}
+
+/* ---------- 主账号 / 续接保护 (2026-10-30) ---------- */
+.prow .pn{display:flex;align-items:center;gap:6px;min-width:0}
+.prow .pname{font-size:13.5px;font-weight:650;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pbadge{flex:none;font-size:10.5px;font-weight:600;line-height:1.5;padding:0 6px;border-radius:999px;background:rgba(0,122,255,.12);color:var(--blue)}
+.prow .v{overflow-wrap:anywhere}
+.pnote{margin:4px 16px 8px;line-height:1.45}.pnote.warnc{color:var(--orange)}
+.pswitch{display:flex;flex-direction:column;gap:10px;margin:0 4px 14px;font-size:12.5px;line-height:1.5}
+.pfromto{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px}.pfromto b{font-weight:650}.pfromto .arr{color:var(--sub)}
+.pblock{background:rgba(255,59,48,.1);color:var(--red);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:3px}
+.pblock b{font-weight:650}.pblock .v{color:var(--sub);font-size:11.5px}
+.proles .ask-list{margin:6px 0 0}.wchip.busy{background:rgba(255,59,48,.12);color:var(--red)}
+.sheet.ask .ask-acts button:disabled{opacity:.4;cursor:not-allowed}
+.banner.rblock{font-weight:500;line-height:1.45}.banner.rblock b{font-weight:650}
+.rb-list{display:flex;flex-direction:column;gap:8px;margin:0 4px 14px;font-size:12.5px;line-height:1.5}
+.rb-item{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:10px;background:rgba(255,59,48,.08)}.rb-item b{font-size:13.5px;font-weight:650}
+.hint.okc{color:var(--green)}
+/* 续接提示（信息，不阻止）：灰色细条 */
+.banner.rnote{background:rgba(118,118,128,.1);color:var(--sub);font-size:11.5px;padding:5px 12px}

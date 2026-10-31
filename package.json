@@ -43,7 +43,7 @@
   ],
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/unit.test.js test/ui.test.js test/accounts.test.js test/restart.test.js test/send-script.test.js test/integration.test.js"
+    "test": "node --test test/unit.test.js test/ui.test.js test/accounts.test.js test/restart.test.js test/send-script.test.js test/integration.test.js test/primary.test.js"
   },
   "engines": {
     "node": ">=20"
@@ -53,6 +53,7 @@
   ],
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",

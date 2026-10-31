@@ -6,6 +6,7 @@ const GLYPH_STOP = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden=
 const GLYPH_PLAY = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M8 5.6v12.8c0 .9 1 1.5 1.8 1l10-6.4a1.2 1.2 0 0 0 0-2L9.8 4.6C9 4.1 8 4.7 8 5.6z" fill="currentColor"/></svg>';
 const SPRING = 'cubic-bezier(.34,1.45,.5,1)', SWAP_MS = 320;
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+let stageDropped = [], stageAuto = []; // 3↔2 切换时记住的顺序（见 resizeStage）
 let stage = [], focusName = null, lastFocus = {}, unread = {}, dockCards = {}, glowT = {};
 let muted = new Set((() => { try { return JSON.parse(localStorage.tbMuted || '[]'); } catch { return []; } })());
 const saveMuted = () => { localStorage.tbMuted = JSON.stringify([...muted]); };
@@ -60,6 +61,9 @@ function initStage() {
   const sel = ((typeof rosterRole === 'function' ? rosterRole(selIdx) : status.roles[selIdx]) || {}).name; if (stage.includes(sel) && !lastFocus[sel]) touch(sel);
 }
 const saveStage = () => { localStorage.tbStage = JSON.stringify(stage); };
+// 防闪烁：主区角色、槽位和终端集合都没变时，状态更新不再重新排位和改尺寸
+// 也比对主区里实际挂着的卡片：停止/重开后主区被清空时必须重新排位。
+const stageSig = () => JSON.stringify([focusName, stage, maxSlots, Object.keys(terms), [...$('stage').children].map(x => x.dataset.role || '')]);
 function placeStage() {
   const st = $('stage'), park = $('parking');
   const want = focusName ? [focusName] : stage;
@@ -68,8 +72,9 @@ function placeStage() {
   want.forEach((n, i) => { const c = terms[n] && terms[n].card; if (!c) return; c.dataset.slot = i; if (st.children[i] !== c) st.insertBefore(c, st.children[i] || null); });
   st.classList.toggle('one', want.length === 1); st.classList.toggle('focus', !!focusName);
   for (const n of want) if (terms[n]) terms[n].focusBtn.textContent = focusName ? '⤡' : '⤢';
-  refitAll();
+  refitAll(); if (typeof glSync === 'function') glSync();
   renderDock(); updatePill();
+  placeStage.sig = stageSig();
 }
 // Refit after every layout change (now, next frame, and after transitions settle).
 function refitAll() { const f = () => { for (const n of (focusName ? [focusName] : stage)) terms[n] && terms[n].fit(); }; f(); requestAnimationFrame(f); setTimeout(f, SWAP_MS + 60); }
@@ -86,7 +91,8 @@ function makeGhost(card) {
 }
 let swapT = 0;
 function beginSwap() { document.body.classList.add('swapping'); clearTimeout(swapT); swapT = setTimeout(endSwap, FLIP_MS + 120); }
-function endSwap() { clearTimeout(swapT); document.body.classList.remove('swapping'); refitAll(); }
+// 重构：只收尾一次（expandFrom 结束和兜底定时器都会调到这里），动画结束后再统一 fit。
+function endSwap() { clearTimeout(swapT); if (!document.body.classList.contains('swapping')) return; document.body.classList.remove('swapping'); refitAll(); }
 function flyGhost({ g, from }, toEl) {
   if (!toEl) return g.remove();
   const b = toEl.getBoundingClientRect();
@@ -122,18 +128,29 @@ function swapIn(name, slot) {
   if (!anim) return;
   const dOut = outName && dockCards[outName];
   if (inRect) expandFrom(inCard, inRect); else endSwap();
-  if (ghost) flyGhost(ghost, (dOut || dIn || {}).el);
+  if (ghost) flyGhost(ghost, (dOut || {}).el);
 }
 // Grow/shrink the stage to the current slot count (2 <-> 3), with Dock animations.
 function resizeStage(animate = true) {
   if (!status.running) return;
   const names = agentNames(), lim = Math.min(maxSlots, names.length), anim = animate && !reduced() && !focusName;
   const ghosts = [], added = [];
-  while (stage.length > lim) { const v = leastRecent(stage), c = terms[v] && terms[v].card; if (anim && c && c.parentElement === $('stage')) ghosts.push([makeGhost(c), v]); stage.splice(stage.indexOf(v), 1); }
+  // 3↔2 来回切换时保持原顺序：收起时记下被撤下的角色和它原来的槽位，展开时放回原位；
+  // 反过来 2→3 自动补上的角色，再收回 2 栏时优先撤下它。
+  while (stage.length > lim) {
+    const auto = stage.filter(n => stageAuto.includes(n)), v = auto.length ? auto[auto.length - 1] : leastRecent(stage), c = terms[v] && terms[v].card;
+    if (anim && c && c.parentElement === $('stage')) ghosts.push([makeGhost(c), v]);
+    stageAuto = stageAuto.filter(n => n !== v);
+    if (!auto.length) { stageDropped = stageDropped.filter(x => x.n !== v); stageDropped.push({ n: v, i: stage.indexOf(v) }); }
+    stage.splice(stage.indexOf(v), 1);
+  }
+  stageDropped = stageDropped.filter(x => names.includes(x.n) && !stage.includes(x.n));
+  if (stage.length < lim) stageDropped.sort((a, b) => a.i - b.i);
+  while (stage.length < lim && stageDropped.length) { const { n, i } = stageDropped.shift(); stage.splice(Math.min(i, stage.length), 0, n); added.push(n); unread[n] = 0; }
   while (stage.length < lim) {
     const score = n => (unread[n] ? 1e15 : 0) + (lastAct[n] || 0);
     const cand = names.filter(n => !stage.includes(n)).sort((a, b) => score(b) - score(a))[0]; if (!cand) break;
-    stage.push(cand); added.push(cand); unread[cand] = 0; touch(cand);
+    stage.push(cand); added.push(cand); stageAuto.push(cand); unread[cand] = 0; touch(cand);
   }
   if (!ghosts.length && !added.length) { placeStage(); return; }
   if (anim) beginSwap();
@@ -211,7 +228,7 @@ function renderDock() {
       const onLbl = el('span', { class: 'on' }, t('On stage'));
       const key = el('span', { class: 'key' }, i < 9 && r.type !== 'observer' ? `Ctrl+${i + 1}` : '');
       const card = el('div', { class: 'dc' + (r.type === 'observer' ? ' arch' : ''), 'data-role': r.name },
-        el('div', { class: 'n' }, el('span', { class: 'slotb' }), dot, el('b', {}, r.name), mute, more),
+        el('div', { class: 'n' }, el('span', { class: 'slotb' }), dot, el('b', {}, r.name), mute), more,
         el('div', { class: 'sub' }, sub),
         line,
         el('div', { class: 'dc-foot' }, onLbl, key),
@@ -255,12 +272,22 @@ function renderDock() {
   if (want.some((x, i) => cur[i] !== x)) flipChildren(box, () => { for (const x of want) box.insertBefore(x, $('slotPill')); });
   box.querySelector('.dsep').classList.toggle('hidden', !on.length || !rest.length);
 }
-function dockLineSoon(name) { lastAct[name] = Date.now(); const d = dockCards[name]; if (!d) return; clearTimeout(d.t); d.t = setTimeout(() => { const r = roleByName(name); if (r && r.state !== 'restarting') d.line.textContent = lastLine(name) || '—'; }, 250); }
+// 重构：Dock 最后一行节流到约 1 秒一次（定时器不再被连续输出不断推迟），文字没变就不写 DOM。
+function dockLineSoon(name) {
+  lastAct[name] = Date.now(); const d = dockCards[name]; if (!d || d.t) return;
+  const wait = Math.max(250, 1000 - (Date.now() - (d.lt || 0)));
+  d.t = setTimeout(() => {
+    d.t = 0; d.lt = Date.now(); if (dockCards[name] !== d) return;
+    const r = roleByName(name); if (!r || r.state === 'restarting' || r.type === 'observer') return;
+    const s = lastLine(name) || '—'; if (d.line.textContent !== s) d.line.textContent = s;
+  }, wait);
+}
 // A hidden role got a message / started working / needs attention: glow + bounce + badge.
 function notifyRole(name) {
   if (!status.running || !dockCards[name] || onStage(name)) return;
   unread[name] = (unread[name] || 0) + 1;
-  if (!muted.has(name)) { const c = dockCards[name].el; c.classList.remove('glow'); void c.offsetWidth; c.classList.add('glow'); clearTimeout(glowT[name]); glowT[name] = setTimeout(() => c.classList.remove('glow'), 2600); }
+  // 重构：已在发光/弹跳时不重启动画，只延长发光时间。
+  if (!muted.has(name)) { const c = dockCards[name].el; if (!c.classList.contains('glow')) c.classList.add('glow'); clearTimeout(glowT[name]); glowT[name] = setTimeout(() => c.classList.remove('glow'), 2600); }
   renderDock();
 }
 
@@ -289,7 +316,8 @@ function openOverflow(name, anchor) {
 }
 async function restartRole(name) {
   const r = roleByName(name); if (!r || r.state === 'restarting') return;
-  try { await api('POST', '/api/restart-role', { role: name }); toast(`${name}: ${t('restarting…')}`); refreshSoon(); } catch (e) { toast(e.message, 'error'); }
+  try { await api('POST', '/api/restart-role', { role: name }); delete resumeBlock[name]; toast(`${name}: ${t('restarting…')}`); refreshSoon(); }
+  catch (e) { const b = parseResumeBlocked(e.message); if (b.length) { setResumeBlocks(b); toast(`${name}: ${resumeText(b[0])}`, 'error'); } else toast(e.message, 'error'); }
 }
 // 重发说明: the current global briefing + this role's duty/extra, sent once when it is idle.
 async function rebriefRole(name) {
@@ -323,7 +351,7 @@ async function startRole(name) {
     renderStatus();
     toast(`${t('Started')} ${name}`);
     if (status.accountWarning) toast(`${t('Note: shared CLI account')} — ${status.accountWarning}`);
-  } catch (e) { toast(e.message, 'error'); }
+  } catch (e) { const b = parseResumeBlocked(e.message); if (b.length) toast(`${name}: ${resumeText(b[0])}`, 'error'); else toast(e.message, 'error'); }
 }
 async function stopRole(name, { ask = true } = {}) {
   if (ask && !confirm(`${t('Stop this role?')} ${name}\n${t('Messages to it are held until you restart it.')}`)) return;
@@ -563,16 +591,17 @@ function wirePanel() {
   h.addEventListener('pointerdown', e => {
     e.preventDefault(); h.setPointerCapture(e.pointerId);
     const x0 = e.clientX, w0 = $('panel').getBoundingClientRect().width; let moved = false;
-    const mv = ev => { const dx = x0 - ev.clientX; if (Math.abs(dx) > 3) moved = true; if (!moved || localStorage.tbPanelC === '1') return; localStorage.tbPanelW = Math.round(Math.max(240, Math.min(560, w0 + dx))); applyPanel(); };
-    const up = () => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); if (!moved) localStorage.tbPanelC = localStorage.tbPanelC === '1' ? '0' : '1'; applyPanel(); relayout(); };
+    const mv = ev => { const dx = x0 - ev.clientX; if (Math.abs(dx) > 3) moved = true; if (!moved || localStorage.tbPanelC === '1') return; document.body.classList.add('resizing'); localStorage.tbPanelW = Math.round(Math.max(240, Math.min(560, w0 + dx))); applyPanel(); };
+    const up = () => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); document.body.classList.remove('resizing'); if (!moved) localStorage.tbPanelC = localStorage.tbPanelC === '1' ? '0' : '1'; applyPanel(); relayout(); };
     h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
   });
   $('prail').addEventListener('click', () => { localStorage.tbPanelC = '0'; applyPanel(); relayout(); });
   applyPanel();
 }
 function renderPanelRail() {
-  const box = $('prail'); box.innerHTML = '';
+  const box = $('prail');
   const c = (status.bridge && status.bridge.counts) || {}, busy = (status.roles || []).filter(r => r.state === 'busy').length;
+  const sig = JSON.stringify([LANG, !!status.running, c.delivered || 0, busy, c.held || 0, c.archived || 0]); if (box.dataset.sig === sig && box.childElementCount) return; box.dataset.sig = sig; box.innerHTML = '';
   const k = (v, label, cls = '') => el('div', { class: 'k ' + cls }, el('b', {}, v), label);
   if (status.running) box.append(k(c.delivered || 0, t('Deliv.')), k(busy, t('Work'), busy ? 'or' : ''), k(c.held || 0, t('Held'), c.held ? 'or' : ''), k(c.archived || 0, t('Arch.')));
   box.append(el('div', { class: 'vt' }, t('Status & activity'), ' ‹'));
@@ -601,15 +630,17 @@ function wireSide() {
   h.addEventListener('pointerdown', e => {
     e.preventDefault(); h.setPointerCapture(e.pointerId);
     const x0 = e.clientX, w0 = document.querySelector('.side').getBoundingClientRect().width; let moved = false;
-    const mv = ev => { const dx = ev.clientX - x0; if (Math.abs(dx) > 3) moved = true; if (!moved || localStorage.tbSideC === '1') return; localStorage.tbSideW = Math.round(Math.max(240, Math.min(480, w0 + dx))); applySide(); if (popOpen) positionPop(); };
-    const up = () => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); if (!moved) setSideCollapsed(localStorage.tbSideC !== '1'); else relayout(); };
+    const mv = ev => { const dx = ev.clientX - x0; if (Math.abs(dx) > 3) moved = true; if (!moved || localStorage.tbSideC === '1') return; document.body.classList.add('resizing'); localStorage.tbSideW = Math.round(Math.max(240, Math.min(480, w0 + dx))); applySide(); if (popOpen) positionPop(); };
+    const up = () => { h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); document.body.classList.remove('resizing'); if (!moved) setSideCollapsed(localStorage.tbSideC !== '1'); else relayout(); };
     h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
   });
   applySide();
 }
 function renderSideRail() {
-  const box = $('srail'); if (!box) return; box.innerHTML = '';
+  const box = $('srail'); if (!box) return;
   const running = status.running, list = typeof rosterList === 'function' ? rosterList() : (running ? status.roles : roles);
+  const sig = JSON.stringify([LANG, !!running, selIdx, $('btnStart').disabled, $('startWhy').textContent, list.map((r, i) => [r.name, r.enabled, r.type, running ? r.state : '', running ? stateLabel(r) : roleSub(r), roleColor(r, i)])]);
+  if (box.dataset.sig === sig && box.childElementCount) return; box.dataset.sig = sig; box.innerHTML = '';
   box.append(el('button', { class: 'ri', title: t('Show sidebar'), onclick: () => setSideCollapsed(false) }, '☰'));
   list.forEach((r, i) => {
     if (!running && !r.enabled) return;
@@ -642,8 +673,8 @@ function accountRow(r, rerender) {
   if (r.account && r.account !== 'default' && !list.some(a => a.name === r.account)) r.account = '';
   setTimeout(() => newBox.closest('.row') && newBox.closest('.row').classList.add('acctrow'));
   const newBox = el('div', { class: 'newacct hidden' });
-  const sel = el('select', { class: 'field-sel', onchange: e => { if (e.target.value === '__new') { newBox.classList.remove('hidden'); if (stat) stat.classList.add('hidden'); newBox.querySelector('input').focus(); } else { newBox.classList.add('hidden'); if (stat) stat.classList.remove('hidden'); r.account = e.target.value; renderFoot(); } } },
-    el('option', { value: '' }, t('Default')),
+  const sel = el('select', { class: 'field-sel', onchange: e => { if (e.target.value === '__new') { newBox.classList.remove('hidden'); if (stat) stat.classList.add('hidden'); newBox.querySelector('input').focus(); } else { newBox.classList.add('hidden'); if (stat) stat.classList.remove('hidden'); const prev = r.account || ''; r.account = e.target.value; renderFoot(); if (prev !== r.account) askResumeAfterAccountChange(r).then(() => { if (popOpen) renderPop(); }); } } },
+    el('option', { value: '' }, r.adapter === 'codex' && prim ? `${t('Primary account')}（${t('current')}：${primCurrentLabel()}）` : t('Default')),
     list.map(a => el('option', { value: a.name, ...(r.account === a.name ? { selected: '' } : {}) }, `${a.name} · ${a.loggedIn ? t('logged in ✓') : t('not logged in')}`)),
     el('option', { value: '__new' }, t('New account…')));
   const name = el('input', { type: 'text', class: 'field mono', placeholder: t('account name, e.g. work') });
@@ -699,6 +730,7 @@ function renderAccounts() {
   const box = $('accounts'), sec = $('acctSec'); if (!box) return; box.innerHTML = '';
   const clis = Object.keys(acct.supported || {}).filter(c => (adapters.find(a => a.id === c) || {}).path || (acct.accounts[c] || []).length);
   sec.classList.toggle('hidden', !clis.length);
+  if (clis.includes('codex')) renderPrimary(box);
   for (const cli of clis) {
     const label = adapterLabel(cli), list = acct.accounts[cli] || [];
     const name = el('input', { type: 'text', class: 'field mono', placeholder: t('account name, e.g. work') });
@@ -706,7 +738,7 @@ function renderAccounts() {
     name.addEventListener('keydown', e => { if (e.key === 'Enter') create(); });
     const newRow = el('div', { class: 'row newrow' + (acctOpen[cli] ? '' : ' hidden') }, name, el('button', { class: 'btn sm', onclick: create }, t('Create')), cli === 'codex' ? el('div', { class: 'hint', style: 'flex-basis:100%' }, t('Extra Codex accounts use the non-admin (unelevated) Windows sandbox, so they cannot break the Codex Desktop sandbox.')) : '');
     box.append(el('div', { class: 'row acli' }, el('span', { class: 'nm' }, label), el('button', { class: 'link', onclick: () => { acctOpen[cli] = !acctOpen[cli]; newRow.classList.toggle('hidden'); if (acctOpen[cli]) name.focus(); } }, '＋ ' + t('New account'))));
-    box.append(el('div', { class: 'row arow' }, el('div', { class: 'k' }, el('span', { class: 'dot archive' }), el('div', {}, el('div', {}, t('Default login')), el('div', { class: 'v' }, t("the CLI's own login"))))));
+    box.append(el('div', { class: 'row arow' }, el('div', { class: 'k' }, el('span', { class: 'dot archive' }), el('div', {}, el('div', {}, cli === 'codex' ? t('Primary account') : t('Default login')), el('div', { class: 'v' }, cli === 'codex' ? `${t('current')}：${primCurrentLabel() || '—'} · ${t('see above')}` : t("the CLI's own login"))))));
     for (const a of list) box.append(el('div', { class: 'row arow' },
       el('div', { class: 'k' }, el('span', { class: 'dot ' + (a.loggedIn ? 'idle' : 'busy') }), el('div', { style: 'min-width:0' }, el('div', { class: 'mono-in' }, a.name), el('div', { class: 'v' + (a.loggedIn ? ' okc' : ' warnc') }, a.loggedIn ? t('logged in ✓') : t('not logged in')))),
       el('div', { class: 'cliact' },

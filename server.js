@@ -15,6 +15,7 @@ const uistate = require('./lib/uistate');
 const folderpicker = require('./lib/folderpicker');
 const cliflags = require('./lib/cliflags');
 const accounts = require('./lib/accounts');
+const primary = require('./lib/primary');
 
 const ROOT = __dirname;
 const REPO = ROOT;
@@ -35,7 +36,7 @@ function defaultOpenFolder(dir) {
 // User data (ui.json, adapters.json, presets.json, accounts/) lives in %USERPROFILE%\.cli-conductor;
 // CC_DATA_DIR overrides it.
 function defaultDataDir() { return process.env.CC_DATA_DIR || path.join(require('os').homedir(), '.cli-conductor'); }
-function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir(), log = console.log, pickFolder = folderpicker.pickFolder, accountsDir = accounts.defaultRoot(), openFolder = defaultOpenFolder } = {}) {
+function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir(), log = console.log, pickFolder = folderpicker.pickFolder, accountsDir = accounts.defaultRoot(), openFolder = defaultOpenFolder, primaryHome = primary.defaultHome(), primaryOpts = {} } = {}) {
   fs.mkdirSync(dataDir, { recursive: true });
   let listenPort = port;
   const files = { adapters: path.join(dataDir, 'adapters.json'), presets: path.join(dataDir, 'presets.json'), ui: path.join(dataDir, 'ui.json') };
@@ -45,7 +46,37 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
   let picking = false;
   let run = null; // { bridge, sessions: {NAME: RoleSession}, roles, startedAt }
   const sockets = new Set();
-  const broadcast = msg => { const s = JSON.stringify(msg); for (const ws of sockets) if (ws.readyState === 1) ws.send(s); };
+  // Output for a role whose snapshot is still being prepared for this socket is queued and sent right after it.
+  const broadcast = msg => { let s; for (const ws of sockets) if (ws.readyState === 1) { if (ws.hold && msg.role && ws.hold[msg.role] && (msg.type === 'output' || msg.type === 'reset')) { ws.hold[msg.role].push(msg); continue; } ws.send(s || (s = JSON.stringify(msg))); } };
+  // 回放：发渲染好的快照（带 cols/rows），浏览器先调到同样大小再写，避免错位。
+  const sendSnapshot = (ws, name, session) => {
+    ws.hold = ws.hold || {}; const q = ws.hold[name] = [];
+    session.snapshot(snap => {
+      if (ws.hold[name] !== q) return; delete ws.hold[name];
+      if (ws.readyState !== 1) return;
+      ws.send(JSON.stringify({ type: 'snapshot', role: name, ...snap }));
+      for (const m of q) ws.send(JSON.stringify(m));
+    });
+  };
+
+  // 主账号: the Codex default home's login, switched through codex-auth (lib/primary.js).
+  const prim = primary.createPrimary({ home: primaryHome, accountsDir, dataDir, log, ...primaryOpts });
+  const gateRole = (r, adapterId, cwd) => prim.checkResume({ adapter: adapterId, account: r.account || '', options: r.options || {}, cwd });
+  const gateText = (name, g) => `${name}(${g.code}${g.owner ? ` owner=${g.owner}` : ''}${g.where ? ` where=${g.where}` : ''}${g.id ? ` id=${g.id}` : ''})`;
+  // Running Codex roles on the primary login (they keep the old login in memory until restarted).
+  const primaryRoles = () => !run ? [] : run.roles.filter(r => r.adapter === 'codex' && (!r.account || r.account === 'default') && run.sessions[r.name])
+    .map(r => ({ name: r.name, state: run.sessions[r.name].state })).filter(r => r.state !== 'offline');
+  // Codex prints this and exits when `resume <id>` is not in its CODEX_HOME: show it on the card.
+  const watchResume = s => {
+    let tail = '';
+    s.on('state', st => { if (st.state === 'starting' || st.state === 'restarting') { s.resumeError = null; tail = ''; } });
+    s.on('output', d => {
+      if (s.resumeError) return;
+      tail = (tail + String(d)).slice(-4000);
+      const m = /No saved session found(?: with ID ([0-9a-f-]{36}))?/i.exec(tail.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ''));
+      if (m) { s.resumeError = { code: 'RESUME_NOT_FOUND_CLI', id: m[1] || '' }; broadcast({ type: 'role', role: s.info() }); }
+    });
+  };
 
   const logins = {}; // LOGIN id -> RoleSession (account login terminals, independent of the bridge)
   const allAdapters = () => [...BUILTIN, ...readJson(files.adapters, []).map(a => ({ ...a, custom: true }))];
@@ -97,6 +128,14 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
         if (!fs.existsSync(cwd)) throw new Error(`CWD_MISSING:${r.name}=${cwd}`);
       }
     }
+    // Resume gate: only a session that is not in the home the role will use blocks the start.
+    // Under the primary account a session created by another login is continued (note only).
+    const notes = {}, blocked = [];
+    for (const r of roles) if (r.type !== 'observer' && !adapters[r.adapter].custom) {
+      const g = gateRole(r, r.adapter, path.resolve(workspace, r.cwd || '.'));
+      if (g.block) blocked.push(gateText(r.name, g)); else if (g.note) notes[r.name] = { ...g.note, id: g.id };
+    }
+    if (blocked.length) throw new Error(`RESUME_BLOCKED:${blocked.join('; ')}`);
     const sessions = {}; const bridgeRoles = {};
     for (const r of roles) {
       if (r.type === 'observer') { bridgeRoles[r.name] = { delivery: 'archive_only', send_policy: 'after_turn', session: null }; continue; }
@@ -105,6 +144,9 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
       const args = [...(a.custom || !accounts.supported(a.id) ? [] : accounts.argOverrides(a.id, r.account)), ...cliflags.buildArgs(a.custom ? '' : a.id, r.options, r.args, a.args || [])];
       const s = new RoleSession({ name: r.name, adapter: a, file: a.path, args, cwd: path.resolve(workspace, r.cwd || '.'), idleMs: body.idleMs || 3000, cols: 110, rows: 30, env });
       s.resumes = cliflags.isResume(a.custom ? '' : a.id, args);
+      s.tbRole = { adapter: a.custom ? '' : a.id, account: r.account || '', options: r.options || {} };
+      s.resumeNote = notes[r.name] || null;
+      watchResume(s);
       sessions[r.name] = s;
       bridgeRoles[r.name] = { delivery: r.delivery === 'after_turn' ? 'after_turn' : 'immediate', send_policy: 'immediate', session: s };
     }
@@ -132,6 +174,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
       s.on('exit', e => bridge.event(s.userStopped ? 'ROLE_STOPPED' : 'ROLE_EXITED', '', name, '', e));
       s.on('reset', () => broadcast({ type: 'reset', role: name }));
       s.start();
+      prim.noteStarted(s.tbRole);
       bridge.event('ROLE_STARTED', '', name, '', { pid: s.pid, file: s.file, args: s.args, cwd: s.cwd });
     }
     run = { bridge, sessions, roles: roles.map(r => ({ name: r.name, type: r.type || 'agent', adapter: r.adapter || null, account: r.account || '', delivery: bridgeRoles[r.name].delivery, briefing: !!bridgeRoles[r.name].briefing, duty: rn.brief.cfg[r.name].duty })), startedAt: new Date().toISOString(), idleMs: body.idleMs || 3000, workspace, brief: rn.brief };
@@ -156,13 +199,21 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
   async function restartRole(name, { graceMs = 5000 } = {}) {
     const s = roleSession(name), r = run;
     if (s.restarting) throw new Error(`ROLE_RESTARTING:${s.name}`);
+    gateRestart(s);
     r.bridge.event('ROLE_RESTARTING', '', s.name, '', { pid: s.pid });
     const t0 = Date.now();
     while (r.bridge.busyDelivering.has(s.name) && Date.now() - t0 < 20000) await new Promise(x => setTimeout(x, 100));
     await s.restart(graceMs);
+    prim.noteStarted(s.tbRole);
     if (!s.resumes) { const plan = briefingPlan(r, s.name, false); if (plan.text) r.bridge.roles[s.name].briefing = plan.text; r.bridge.rebrief(s.name); }
     r.bridge.event('ROLE_RESTARTED', '', s.name, '', { pid: s.pid, file: s.file, args: s.args, cwd: s.cwd, rebrief: !s.resumes });
     return s.info();
+  }
+  function gateRestart(s) {
+    if (!s.tbRole || !s.tbRole.adapter) return;
+    const g = prim.checkResume({ ...s.tbRole, cwd: s.cwd });
+    if (g.block) throw new Error(`RESUME_BLOCKED:${gateText(s.name, g)}`);
+    s.resumeNote = g.note ? { ...g.note, id: g.id } : null;
   }
   async function stopRole(name) {
     const s = roleSession(name);
@@ -201,6 +252,8 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
         ? dups.map(d => `${d.adapter}/${d.account}: ${d.roles.join(', ')}`).join('; ')
         : '';
       const a = compile(a0);
+      let note = null;
+      if (!a.custom) { const g = gateRole(body, a.id, cwd); if (g.block) throw new Error(`RESUME_BLOCKED:${gateText(name, g)}`); if (g.note) note = { ...g.note, id: g.id }; }
       const env = a.custom ? {} : accounts.supported(a.id) ? accounts.envFor(accountsDir, a.id, body.account) : {};
       const idleMs = run.idleMs || 3000;
       const args = [...(a.custom || !accounts.supported(a.id) ? [] : accounts.argOverrides(a.id, body.account)), ...cliflags.buildArgs(a.custom ? '' : a.id, body.options, body.args, a.args || [])];
@@ -209,6 +262,9 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
         args, cwd, idleMs, cols: 110, rows: 30, env,
       });
       session.resumes = cliflags.isResume(a.custom ? '' : a.id, args);
+      session.tbRole = { adapter: a.custom ? '' : a.id, account: body.account || '', options: body.options || {} };
+      session.resumeNote = note;
+      watchResume(session);
       delivery = body.delivery === 'after_turn' ? 'after_turn' : 'immediate';
       const entry = { delivery, send_policy: 'immediate', session };
       const plan = briefingPlan(run, name, session.resumes);
@@ -225,6 +281,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
       session.on('reset', () => broadcast({ type: 'reset', role: name }));
       run.sessions[name] = session;
       session.start();
+      prim.noteStarted(session.tbRole);
       run.bridge.event('ROLE_STARTED', '', name, '', { pid: session.pid, file: session.file, args: session.args, cwd: session.cwd, hotAdd: true });
     }
     const meta = {
@@ -237,7 +294,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
     if (typeof accountWarning === 'string' && accountWarning) snap.accountWarning = accountWarning;
     broadcast({ type: 'status', status: snap });
     // Also send a fresh PTY snapshot to any already-connected UI.
-    if (session) broadcast({ type: 'snapshot', role: name, data: session.ring || '' });
+    if (session) for (const ws of sockets) if (ws.readyState === 1) sendSnapshot(ws, name, session);
     return snap;
   }
   // 重发说明: send the current briefing once more to one running role (ignores the switch; user asked).
@@ -307,11 +364,16 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
       return { command: (a.commands || [b.adapter || ''])[0], args, resumes: cliflags.isResume(a.custom ? '' : a.id, args) };
     },
     'GET /api/status': () => statusPayload(),
-    'POST /api/restart-role': b => { const s = roleSession(b.role); if (s.restarting) throw new Error(`ROLE_RESTARTING:${s.name}`); restartRole(s.name).catch(e => log('restart failed', e.message)); return { ok: true, role: s.name }; },
+    'POST /api/restart-role': b => { const s = roleSession(b.role); if (s.restarting) throw new Error(`ROLE_RESTARTING:${s.name}`); gateRestart(s); restartRole(s.name).catch(e => log('restart failed', e.message)); return { ok: true, role: s.name }; },
     'POST /api/stop-role': b => stopRole(b.role),
     'POST /api/add-role': b => addRole(b),
     'POST /api/rebrief': b => rebriefRole(b),
     'GET /api/accounts': () => accountsPayload(),
+    'GET /api/primary': () => prim.list(),
+    'POST /api/primary-precheck': b => prim.precheck(String(b.key || ''), primaryRoles()),
+    'POST /api/primary-switch': async b => { const r = await prim.switchTo(String(b.key || ''), primaryRoles()); broadcast({ type: 'primary', primary: r.list }); return r; },
+    // Pre-start check for the UI: per role { ok } | { ok, warn } | { block, code, owner|where }.
+    'POST /api/resume-check': b => { const ws = path.resolve(String(b.workspace || '.')); return Object.fromEntries((b.roles || []).filter(r => r && r.name && r.type !== 'observer').map(r => [String(r.name).toUpperCase(), gateRole(r, String(r.adapter || ''), path.resolve(ws, r.cwd || '.'))])); },
     'POST /api/accounts': b => { accounts.create(accountsDir, String(b.cli || ''), String(b.name || '').trim().toLowerCase()); return accountsPayload(); },
     'POST /api/open-account-folder': b => { const st = accounts.status(accountsDir, String(b.cli || ''), String(b.name || '')); if (!st.exists) throw new Error(`ACCOUNT_MISSING:${b.cli}-${b.name}`); openFolder(st.dir); return { ok: true, dir: st.dir }; },
     'POST /api/account-login': b => startLogin({ cli: String(b.cli || ''), name: String(b.name || '') }),
@@ -358,7 +420,7 @@ function createApp({ port = 7430, host = '127.0.0.1', dataDir = defaultDataDir()
       sockets.add(ws);
       ws.on('close', () => sockets.delete(ws));
       ws.send(JSON.stringify({ type: 'status', status: statusPayload() }));
-      if (run) for (const [n, s] of Object.entries(run.sessions)) ws.send(JSON.stringify({ type: 'snapshot', role: n, data: s.ring }));
+      if (run) for (const [n, s] of Object.entries(run.sessions)) sendSnapshot(ws, n, s);
       ws.on('message', raw => {
         let m; try { m = JSON.parse(raw); } catch { return; }
         const s = (run && run.sessions[m.role]) || logins[m.role]; if (!s) return;

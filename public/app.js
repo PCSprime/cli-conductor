@@ -544,6 +544,7 @@ function renderPlaceholders() {
   const st = $('stage'); st.innerHTML = ''; st.classList.remove('focus');
   preStage.forEach((r, slot) => { const i = roles.indexOf(r); st.append(el('div', { class: 'term placeholder' + (i === selIdx ? ' sel' : ''), 'data-slot': slot, 'data-i': i, onclick: e => select(i, popOpen ? e.currentTarget : undefined) },
     el('div', { class: 'tbar' }, el('div', { class: 't' }, el('span', { class: 'dot offline' }), r.name || '—', el('span', { class: 's' }, `${adapterLabel(r.adapter)}${r.account ? ' · ' + r.account : ''} · ${t('Not running')}`))),
+    resumeBlock[r.name] ? el('div', { class: 'banner rblock', role: 'alert' }, el('b', {}, t('Not started')), ' · ', resumeText(resumeBlock[r.name])) : resumeNote[r.name] ? el('div', { class: 'banner rnote' }, noteText(resumeNote[r.name])) : '',
     el('div', { class: 'tbody' }, el('div', { class: 'big' }, cmdLine(r)), el('div', {}, t('Press Start Conductor to launch this CLI here.'))))); });
   if (!list.length) st.append(el('div', { class: 'term placeholder' }, el('div', { class: 'tbody' }, t('Enable at least two roles in the sidebar.'))));
   st.classList.toggle('one', st.children.length === 1);
@@ -618,12 +619,14 @@ function setRunningLock(running) {
 }
 // UI P0: keep the right panel's scroll position across status re-renders.
 function renderStatus() { const pb = document.querySelector('.pbody'), st = pb ? pb.scrollTop : 0; renderStatusCore(); if (pb && pb.scrollTop !== st) pb.scrollTop = st; }
+// 防闪烁：内容没变就不重写顶部状态条
+function setPill(h) { const p = $('pill'); if (p.dataset.h === h) return; p.dataset.h = h; p.innerHTML = h; }
 function renderStatusCore() {
   const running = status.running;
   for (const id of ['btnStop', 'btnNew', 'pauseWrap', 'runInfo']) $(id).classList.toggle('hidden', !running);
   $('btnStart').classList.toggle('hidden', running);
   if (!running) {
-    $('pill').innerHTML = '<span class="dot offline"></span>' + t('Not running');
+    setPill('<span class="dot offline"></span>' + t('Not running'));
     for (const n of Object.keys(terms)) { terms[n].card.remove(); terms[n].term.dispose(); delete terms[n]; }
     $('layout').classList.remove('running'); for (const id of ['stage', 'dock']) $(id).classList.add('hidden'); $('terms').classList.remove('hidden'); $('stage').innerHTML = ''; focusName = null; unread = {}; renderDock(); renderPanelRail();
     renderWorkspace(); renderRoles(); renderAdapters(); renderPlaceholders(); renderFeed(); setRunningLock(false); if (popOpen) renderPop(); return;
@@ -631,8 +634,8 @@ function renderStatusCore() {
   const b = status.bridge, roleList = status.roles;
   if (selIdx >= rosterList().length) selIdx = 0; // selIdx indexes rosterList(), not status.roles
   const busy = roleList.filter(r => r.state === 'busy').length;
-  $('pill').innerHTML = `<span class="dot ${b.paused ? 'busy' : 'idle'}"></span>${b.paused ? t('Paused') : t('Bridge running')} · ${roleCountText(roleList)} · ${b.counts.held} ${t('held')}${busy ? ` · ${busy} ${t('working')}` : ''} · ${b.waitTurnEnd ? t('wait for turn end: all roles') : t('wait for turn end: per role')}`;
-  renderRoles(); renderAdapters(); if (!renderStatus.ws) { renderWorkspace(); renderStatus.ws = 1; }
+  setPill(`<span class="dot ${b.paused ? 'busy' : 'idle'}"></span>${b.paused ? t('Paused') : t('Bridge running')} · ${roleCountText(roleList)} · ${b.counts.held} ${t('held')}${busy ? ` · ${busy} ${t('working')}` : ''} · ${b.waitTurnEnd ? t('wait for turn end: all roles') : t('wait for turn end: per role')}`);
+  renderRoles(); { const adSig = JSON.stringify([LANG, adapters, ui.hiddenAdapters, acct, roles]); if (renderStatusCore.adSig !== adSig) { renderStatusCore.adSig = adSig; renderAdapters(); } } if (!renderStatus.ws) { renderWorkspace(); renderStatus.ws = 1; }
   sw($('swPause'), b.paused);
   const sl = $('statusList'), slSig = JSON.stringify([LANG, b.counts, b.held.slice(0, 5).map(h => [h.to, h.reason])]);
   if (sl.dataset.sig !== slSig) { sl.dataset.sig = slSig; sl.innerHTML = '';
@@ -649,7 +652,7 @@ function renderStatusCore() {
   for (const r of roleList) if (r.type !== 'observer') ensureTerm(r); else if (terms[r.name]) { terms[r.name].card.remove(); delete terms[r.name]; }
   for (const n of Object.keys(terms)) if (!roleList.some(r => r.name === n)) { terms[n].card.remove(); terms[n].term.dispose(); delete terms[n]; }
   for (const r of roleList) updateTermBar(r);
-  maxSlots = computeSlots(); initStage(); placeStage(); renderSideRail(); renderPanelRail();
+  maxSlots = computeSlots(); initStage(); if (placeStage.sig !== stageSig()) placeStage(); else { renderDock(); updatePill(); } renderSideRail(); renderPanelRail();
   highlightTerm(); setRunningLock(true);
   if (popOpen) renderPop();
   const opts = roleList.map(r => `<option>${r.name}</option>`).join('');
@@ -659,7 +662,63 @@ function renderStatusCore() {
 function termTheme() { const dark = matchMedia('(prefers-color-scheme: dark)').matches; return dark ? { background: '#121214', foreground: '#e5e5ea', cursor: '#0a84ff', selectionBackground: 'rgba(10,132,255,.35)' } : { background: '#fbfbfd', foreground: '#1d1d1f', cursor: '#007aff', selectionBackground: 'rgba(0,122,255,.25)' }; }
 // WebGL terminal renderer (#7): GPU drawing for busy terminals; any failure or GPU context loss falls back to the
 // built-in DOM renderer. localStorage.tbWebgl = '0' turns it off.
-function useWebgl(term) { try { if (!window.WebglAddon || localStorage.tbWebgl === '0') return; const gl = new WebglAddon.WebglAddon(); gl.onContextLoss(() => { try { gl.dispose(); } catch { } }); term.loadAddon(gl); } catch { } }
+// 防闪烁：切到别的窗口/标签页时浏览器可能回收 GPU 上下文。以前只是销毁、一直停在 DOM 渲染；现在页面可见时重新挂上 WebGL（每个终端最多重试 3 次）。
+function useWebgl(term) {
+  // 重构：只有主区（#stage）里的终端用 WebGL；停在 Dock/#parking 的终端不占 GPU 上下文。
+  if (!window.WebglAddon || localStorage.tbWebgl === '0' || term._gl || (term._glLoss || 0) >= 3 || !term.element || !term.element.closest('#stage')) return;
+  try {
+    const gl = new WebglAddon.WebglAddon();
+    gl.onContextLoss(() => { if (term._gl !== gl) return; term._glLoss = (term._glLoss || 0) + 1; term._gl = null; try { gl.dispose(); } catch { } if (!document.hidden) setTimeout(() => useWebgl(term), 500); });
+    term.loadAddon(gl); term._gl = gl;
+  } catch { term._gl = null; }
+}
+// 主动卸下（离开主区）：不算作上下文丢失，不占 3 次重试额度。
+function dropWebgl(term) { const gl = term._gl; if (!gl) return; term._gl = null; try { gl.dispose(); } catch { } }
+function glSync() { for (const x of Object.values(terms)) { if (!x.term.element) continue; if (x.card.parentElement === $('stage')) useWebgl(x.term); else dropWebgl(x.term); } }
+document.addEventListener('visibilitychange', () => {
+  document.documentElement.classList.toggle('tb-hidden', document.hidden);
+  if (document.hidden) { if (outRaf) { cancelAnimationFrame(outRaf); outRaf = 0; schedOut(); } return; }
+  if (outTo) { clearTimeout(outTo); outTo = 0; schedOut(); }
+  glSync();
+});
+// 防闪烁：ConPTY 会把 CLI 的一帧拆成好几段发出（先隐藏光标，几十毫秒后才画内容、再显示光标；?2026 同步帧也被拆空）。
+// 输出先按角色攒一下再写入：缓冲里光标还处于隐藏、或同步帧没结束时最多再等 60ms，让一帧尽量一次画完。
+// 重构：所有角色共用一个 requestAnimationFrame 循环，每帧每个角色最多写一次（页面隐藏时改为约 200ms 一次）；
+// 仍保留“光标隐藏/同步帧未结束时最多再等 60ms”的整帧等待；单个角色积压超过 256KB 时立即写入。
+const outQ = {}; let outRaf = 0, outTo = 0;
+function queueOut(role, data) {
+  const q = outQ[role] || (outQ[role] = { s: '', t0: 0 });
+  if (!q.s) q.t0 = performance.now();
+  q.s += data;
+  if (q.s.length > 262144) { flushOut(role, true); return; }
+  schedOut();
+}
+function schedOut() { if (outRaf || outTo) return; if (document.hidden) outTo = setTimeout(outTick, 200); else outRaf = requestAnimationFrame(outTick); }
+function outTick() { outRaf = 0; outTo = 0; let more = false; for (const role in outQ) if (outQ[role].s && !flushOut(role)) more = true; if (more) schedOut(); }
+function flushOut(role, force) {
+  const q = outQ[role]; if (!q) return true;
+  const s = q.s; if (!s) return true;
+  const open = s.lastIndexOf('\x1b[?25l') > s.lastIndexOf('\x1b[?25h') || s.lastIndexOf('\x1b[?2026h') > s.lastIndexOf('\x1b[?2026l');
+  if (!force && open && performance.now() - q.t0 < 60) return false;
+  q.s = ''; const tm = terms[role]; if (tm) tm.term.write(s);
+  return true;
+}
+function dropOut(role) { const q = outQ[role]; if (q) q.s = ''; }
+// 重开网页时的回放：先把浏览器终端调成服务端终端的列数/行数再写，避免按 80 列画 110 列的内容导致错位；
+// 写完再按页面实际大小 fit 一次（大小不同才会通知服务端）。旧服务端不带 cols/rows 时，退回先 fit 再写。
+function applySnapshot(role, m) {
+  const tm = terms[role]; if (!tm) return false;
+  dropOut(role);
+  const term = tm.term; term.reset();
+  if (m.cols > 0 && m.rows > 0) { tm.fit.sent = `${m.cols}x${m.rows}`; tm.fit.ws = ws; } // 服务端当前尺寸：页面大小不同时 fit 会再通知一次
+  if (m.cols > 0 && m.rows > 0) { if (term.cols !== m.cols || term.rows !== m.rows) term.resize(m.cols, m.rows); } else tm.fit();
+  let data = m.data || '';
+  // 旧版服务端（286bb10）的快照恢复了鼠标跟踪模式却没恢复 SGR 编码：Codex 收不到滚轮，翻不了历史。
+  // 新版服务端会带 mouseEnc 并自己补上；旧版时按常见 TUI（crossterm/ratatui）补 ?1006h。
+  if (m.rendered && m.mouseEnc === undefined && /\x1b\[\?100[023]h/.test(data) && !/\x1b\[\?10[01]6h/.test(data)) data += '\x1b[?1006h';
+  term.write(data, () => { tm.fit(); dockLineSoon(role); });
+  return true;
+}
 function ensureTerm(r) {
   if (terms[r.name]) return terms[r.name];
   // The padding lives on .tbody and xterm opens in the unpadded .xwrap: FitAddon measures the
@@ -672,13 +731,20 @@ function ensureTerm(r) {
   const card = el('div', { class: 'term', 'data-role': r.name }, el('div', { class: 'tbar', onclick: () => { select(idx()); touch(r.name); }, ondblclick: () => toggleFocus(r.name) }, el('div', { class: 't' }, dot, r.name, sub), el('div', { class: 'tacts' }, rst, focusBtn)), banner, body);
   $('parking').append(card);
   const term = new Terminal({ fontFamily: '"SF Mono","Cascadia Mono",Consolas,"Sarasa Mono SC","Microsoft YaHei Mono",monospace', fontSize: termFont, lineHeight: 1.2, cursorBlink: true, theme: termTheme(), scrollback: 3000, allowProposedApi: true });
-  const fit = new FitAddon.FitAddon(); term.loadAddon(fit); term.open(wrap); useWebgl(term);
+  const fit = new FitAddon.FitAddon(); term.loadAddon(fit);
+  // 防错乱：#parking 是 display:none，在里面 open 会量不到字宽、WebGL 画布尺寸为 0。改为第一次放上主区时再 open（写入缓冲不受影响）。
+  const open = () => { if (term.element) return; term.open(wrap); useWebgl(term); };
   term.onData(d => ws && ws.readyState === 1 && ws.send(JSON.stringify({ type: 'input', role: r.name, data: d })));
+  // 滚动条：备用屏（Codex 全屏界面）或内容不满一屏时没有可滚的历史，xterm 会把滚动条标成 invisible；
+  // app.css 为防闪烁让 invisible 也常显，会画出一整条假滑块。这里按缓冲区是否可滚给卡片加 noscroll，此时隐藏滚动条。
+  const sbSync = () => { const no = term.buffer.active.length <= term.rows; if (card._noscroll !== no) { card._noscroll = no; card.classList.toggle('noscroll', no); } };
+  term.onWriteParsed(sbSync); term.buffer.onBufferChange(sbSync); term.onResize(sbSync); sbSync();
   body.addEventListener('mousedown', () => { touch(r.name); const i = idx(); if (i !== selIdx) select(i); });
   // Refit on every size change and tell the PTY (cols/rows) so the CLI redraws for the visible size.
-  const doFit = () => { if (document.body.classList.contains('swapping') || !card.isConnected || card.parentElement === $('parking') || !wrap.clientWidth) return; try { const d = fit.proposeDimensions(); if (!d || !isFinite(d.cols)) return; if (d.cols !== term.cols || d.rows !== term.rows) term.resize(d.cols, d.rows); const k = `${term.cols}x${term.rows}`; if (ws && ws.readyState === 1 && (doFit.sent !== k || doFit.ws !== ws)) { ws.send(JSON.stringify({ type: 'resize', role: r.name, cols: term.cols, rows: term.rows })); doFit.sent = k; doFit.ws = ws; } } catch { } };
+  const doFit = () => { if (!card.isConnected || card.parentElement === $('parking')) return; open(); if (document.body.classList.contains('swapping') || document.body.classList.contains('resizing') || !wrap.clientWidth) return; try { const d = fit.proposeDimensions(); if (!d || !isFinite(d.cols)) return; if (d.cols !== term.cols || d.rows !== term.rows) term.resize(d.cols, d.rows); const k = `${term.cols}x${term.rows}`; if (ws && ws.readyState === 1 && (doFit.sent !== k || doFit.ws !== ws)) { ws.send(JSON.stringify({ type: 'resize', role: r.name, cols: term.cols, rows: term.rows })); doFit.sent = k; doFit.ws = ws; } } catch { } };
   new ResizeObserver(() => { clearTimeout(doFit.t); doFit.t = setTimeout(doFit, 60); }).observe(wrap);
   terms[r.name] = { term, card, dot, sub, banner, fit: doFit, focusBtn };
+  if (pendingSnap[r.name]) { applySnapshot(r.name, pendingSnap[r.name]); delete pendingSnap[r.name]; }
   setTimeout(doFit, 50);
   return terms[r.name];
 }
@@ -686,19 +752,28 @@ function updateTermBar(r) {
   const tm = terms[r.name]; if (!tm) return;
   tm.dot.className = 'dot ' + r.state; setDotA11y(tm.dot, r.state); tm.sub.textContent = `${r.label || r.adapter}${r.account ? ' · ' + r.account : ''} · ${r.delivery === 'after_turn' ? t('after turn') : t('immediate')} · ${stateLabel(r)}`;
   tm.card.classList.toggle('restarting', r.state === 'restarting');
+  if (r.state !== 'offline' && r.state !== 'restarting' && !r.resumeError) delete resumeBlock[r.name];
+  const rb = r.resumeError || resumeBlock[r.name];
+  tm.banner.classList.toggle('rblock', !!rb && r.state !== 'attention');
+  if (rb && r.state !== 'attention') { tm.banner.classList.remove('rnote', 'hidden'); tm.banner.textContent = `${r.resumeError ? t('Could not continue the conversation') : t('Not started')} · ${resumeText(rb)}`; return; }
+  const rn = r.state !== 'attention' && r.state !== 'offline' && r.resumeNote;
+  tm.banner.classList.toggle('rnote', !!rn);
+  if (rn) { tm.banner.classList.remove('hidden'); tm.banner.textContent = noteText(rn); return; }
   tm.banner.classList.toggle('hidden', r.state !== 'attention');
   tm.banner.textContent = r.state !== 'attention' ? '' : r.attention === 'SUBMIT_UNCONFIRMED' ? t('The message was pasted but the CLI did not start (Enter seems ignored). Click this terminal and press Enter to submit it. Deliveries are held.') : `${t('Waiting for you:')} "${r.attention}" ${t('— answer it in this terminal. Deliveries are held.')}`;
 }
 
+const pendingSnap = {}; // snapshot that arrived before its terminal was created
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (onLoginMsg(m)) return;
-    if (m.type === 'reset') { const tm = terms[m.role]; if (tm) tm.term.reset(); return; }
+    if (m.type === 'reset') { dropOut(m.role); delete pendingSnap[m.role]; const tm = terms[m.role]; if (tm) tm.term.reset(); return; }
+    if (onPrimaryMsg(m)) return;
     if (m.type === 'status') { status = m.status; if (status.running) events = status.events || []; renderStatus(); }
-    else if (m.type === 'snapshot') { const tm = terms[m.role]; if (tm) { tm.term.reset(); tm.term.write(m.data); } else setTimeout(() => terms[m.role] && terms[m.role].term.write(m.data), 100); }
-    else if (m.type === 'output') { const tm = terms[m.role]; if (tm) { tm.term.write(m.data); dockLineSoon(m.role); } }
+    else if (m.type === 'snapshot') { if (!applySnapshot(m.role, m)) pendingSnap[m.role] = m; }
+    else if (m.type === 'output') { if (terms[m.role]) { queueOut(m.role, m.data); dockLineSoon(m.role); } }
     else if (m.type === 'role') { if (status.running) { const i = status.roles.findIndex(r => r.name === m.role.name); if (i >= 0) { const prev = status.roles[i].state; status.roles[i] = { ...status.roles[i], ...m.role }; if (prev !== m.role.state && (m.role.state === 'busy' || m.role.state === 'attention')) notifyRole(m.role.name); renderStatus(); } } }
     else if (m.type === 'event') { events.push(m.event); if (events.length > 300) events.shift(); const e = m.event; if (['DELIVERED', 'BRIEFED', 'SUBMIT_UNCONFIRMED'].includes(e.kind) && e.to) notifyRole(e.to); refreshSoon(); }
   };
@@ -722,7 +797,7 @@ async function init() {
   document.addEventListener('pointerdown', e => { if (!popOpen || onScrollbar(e)) return; if (e.target.closest('#pop, #roles, #btnAddRole, .side .link, #dock, #srail, #stage .placeholder, #stage .tbar, #ctx, #sheet, #gbSheet, #loginSheet, #shandle, #phandle')) return; closePop(); }, true);
   window.addEventListener('resize', () => popOpen && positionPop());
   document.addEventListener('scroll', () => popOpen && positionPop(), true);
-  [adapters, ui, cliCaps] = await Promise.all([api('GET', '/api/adapters'), api('GET', '/api/ui-state').catch(() => ui), api('GET', '/api/cliflags').catch(() => ({})), loadAccounts()]);
+  [adapters, ui, cliCaps] = await Promise.all([api('GET', '/api/adapters'), api('GET', '/api/ui-state').catch(() => ui), api('GET', '/api/cliflags').catch(() => ({})), loadAccounts(), loadPrimary()]);
   const def = await api('GET', '/api/defaults');
   if (def.briefing) Object.assign(bdef, def.briefing);
   $('btnGb').onclick = e => { e.stopPropagation(); openGb(); }; $('gbRow').onclick = () => openGb(); renderGbRow();
@@ -741,11 +816,13 @@ async function init() {
   $('btnLoadPreset').onclick = () => { const p = (loadPresets.data || {})[$('presetSel').value]; if (p) { applyConfig(p); toast(t('Preset loaded')); } };
   $('btnDelPreset').onclick = async () => { const n = $('presetSel').value; if (!n) return; await api('DELETE', '/api/presets', { name: n }); await loadPresets(); toast(t('Preset deleted')); };
   $('btnStart').onclick = async () => { const c = launchConfig(); localStorage.tbLast = JSON.stringify(c); $('btnStart').disabled = true;
+    let rc; try { rc = await resumePrecheck(c); } catch (e) { toast(e.message, 'error'); renderFoot(); return; }
+    if (!rc) { renderFoot(); return; } // 续接被阻止：会话属于另一个账号 / 不在该账号目录
     const dup = duplicateAccounts(c.roles);
     if (dup.length) { // UI P1 #15: in-app confirm instead of the native dialog
       const a = await dynSheet(t('These roles use the same CLI with the same account and will share one login and session state:'), el('div', { class: 'ask-list' }, dup.map(d => el('span', { class: 'wchip' }, d))), [[t('Start anyway'), 'ok', 'btn'], [t('Change accounts'), 'acct', 'btn plain'], [t('Cancel'), null, 'link']]);
       if (a !== 'ok') { renderFoot(); if (a === 'acct') showAccounts(); return; } c.allowDuplicateAccounts = true; }
-    try { status = await api('POST', '/api/start', { ...c, globalBriefing: gbText(), lang: LANG }); events = status.events || []; selIdx = 0; closePop(); ui = await api('GET', '/api/ui-state').catch(() => ui); renderStatus(); } catch (e) { toast(e.message, 'error'); } finally { renderFoot(); } };
+    try { status = await api('POST', '/api/start', { ...c, globalBriefing: gbText(), lang: LANG }); events = status.events || []; selIdx = 0; closePop(); ui = await api('GET', '/api/ui-state').catch(() => ui); renderStatus(); resumeWarnToast(rc.warns); } catch (e) { const b = parseResumeBlocked(e.message); if (b.length) setResumeBlocks(b); toast(e.message, 'error'); } finally { renderFoot(); } };
   $('btnStop').onclick = async () => { if (!confirm(t('Stop the bridge and exit all CLIs?'))) return; $('btnStop').disabled = true; try { await api('POST', '/api/stop'); } finally { $('btnStop').disabled = false; } for (const n of Object.keys(terms)) { terms[n].card.remove(); terms[n].term.dispose(); delete terms[n]; } status = { running: false }; selIdx = 0; closePop(); renderStatus(); };
   $('swPause').onclick = async () => { status = await api('POST', '/api/pause', { paused: !sw($('swPause')) }); renderStatus(); };
   $('btnNew').onclick = () => { $('sheet').classList.add('show'); $('sMsg').focus(); };
